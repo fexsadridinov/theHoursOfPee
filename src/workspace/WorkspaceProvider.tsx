@@ -40,7 +40,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (hasStoredLocalData()) {
         const local = loadData()
         const counts = entityCounts(local)
-        if (Object.values(counts).some(Boolean) && remoteData.activities.length + remoteData.experiences.length === 0) {
+        if (counts.activities > 0 && remoteData.activities.length === 0) {
           setMigration({ counts, local })
         }
       }

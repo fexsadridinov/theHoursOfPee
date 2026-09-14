@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mergeWithoutOverwrite, skipExistingIds, entityCounts } from '../migration'
 import { seedData } from '../data'
+import { SCHEMA_VERSION } from '../dictionaries'
 import { emptyRemoteWorkspace } from './types'
 import { LocalRepository } from './local'
 import { ownershipUserId } from '../auth/access'
@@ -19,8 +20,8 @@ describe('local-to-remote migration', () => {
   it('counts entities for the migration preview', () => {
     const counts = entityCounts(seedData)
     expect(counts.activities).toBe(seedData.activities.length)
-    expect(counts.experiences).toBe(2)
-    expect(counts.recurrenceSeries).toBe(0)
+    expect(counts.activityTypes).toBe(seedData.activityTypes.length)
+    expect(counts.supervisors).toBe(seedData.dictionaries.supervisors.length)
   })
 })
 
@@ -55,10 +56,12 @@ describe('account deletion and export', () => {
   })
 })
 
-describe('session expiration', () => {
-  it('treats an empty remote workspace as a valid logged-in empty account', () => {
+describe('a brand new online workspace', () => {
+  it('has no entries but can still be logged against', () => {
     const empty = emptyRemoteWorkspace()
     expect(empty.activities).toEqual([])
-    expect(empty.schemaVersion).toBe(2)
+    expect(empty.schemaVersion).toBe(SCHEMA_VERSION)
+    // Without seeded types the activity dropdown is empty and nothing can be saved.
+    expect(empty.activityTypes.map(type => type.category)).toEqual(['direct', 'indirect'])
   })
 })

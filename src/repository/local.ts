@@ -12,11 +12,10 @@ export class LocalRepository implements DataRepository {
     const current = loadData()
     const { merged, skipped } = mergeWithoutOverwrite(current, incoming)
     saveData(merged)
-    const uploaded = entityUploadCount(incoming) - Object.values(skipped).reduce((sum, value) => sum + value, 0)
-    return { uploaded, skipped: Object.values(skipped).reduce((sum, value) => sum + value, 0) }
+    const skippedCount = Object.values(skipped).reduce((sum, value) => sum + value, 0)
+    return { uploaded: entityUploadCount(incoming) - skippedCount, skipped: skippedCount }
   }
 }
 
 const entityUploadCount = (data: AppData) =>
-  data.activities.length + data.experiences.length + data.activityTypes.length
-  + Object.values(data.dictionaries).reduce((sum, list) => sum + list.length, 0)
+  data.activities.length + data.activityTypes.length + data.dictionaries.supervisors.length

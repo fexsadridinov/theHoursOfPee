@@ -1,6 +1,8 @@
 # the Hours of Pee
 
-A private activity and experience-hours tracker. It stores durations as integer minutes.
+A private hours tracker. You log hours against a date and an activity type; nothing else is required.
+
+An entry is only ever a date, a number of hours, an activity type (direct or indirect), an optional supervisor, and a note. Hours are entered and displayed as decimal hours (`1.5`) and stored as integer minutes so quarter hours stay exact.
 
 It can run in two modes:
 
@@ -107,7 +109,7 @@ After first remote login, if this browser still has local data and the remote wo
 
 ### Backups
 
-- Each person can download JSON/CSV, including a **redacted** client-label export, from Settings.
+- Each person can download JSON or CSV from Settings. Both carry decimal hours.
 - Imports require confirmation and keep schema version checks.
 - An admin system-wide backup should be taken from the Supabase dashboard (server-side), not from the browser.
 
@@ -132,11 +134,13 @@ Prefer Git-connected deployments so pushes to the GitHub branch deploy automatic
 
 ## Privacy
 
-Use anonymous client labels only. Do not enter names, addresses, medical record numbers, or other identifying details.
+There is no client field. Keep notes free of names, addresses, medical record numbers, or other identifying details.
 
 ## Current product notes
 
-The shipped UI includes dashboard, month calendar, activity list, experiences, dictionaries, reports, and local/remote persistence. Database stubs exist for recurrence series, first-class client records, requirement groups, and saved report presets; those screens are not a separate product area yet. Client labels on activities remain anonymous strings.
+The shipped UI is Overview, month Calendar, Hours list, Reports, and Settings, over local or online persistence. Every workspace starts with two activity types, **Direct hours** and **Indirect hours**; more can be added in Settings and each one is either direct or indirect.
+
+Experiences, activity statuses, start times, terms, tags, and client labels were removed. Their database columns and tables still exist but are no longer written, so old rows keep their history — see `supabase/migrations/202609150004_hours_only_activities.sql`. Backups from earlier versions still import: the migration in `src/dictionaries.ts` keeps the date, hours, type, supervisor, and notes, and drops the rest.
 
 ## Commands
 

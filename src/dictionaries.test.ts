@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import {
+  activeItems,
+  canRemoveActivityType,
   canRemoveDictionaryItem,
-  defaultDictionaries,
+  defaultActivityTypes,
   dictionaryUsage,
-  findOrCreateDemographic,
   findOrCreateNamed,
   migrateToCurrent,
   removeItem,
   renameItem,
   SCHEMA_VERSION,
-  selectableItems,
   setItemActive,
 } from './dictionaries'
 import { isValidBackup, migrate, seedData, toCsv, exportJson } from './data'
-import { completedMinutes, sumMinutes } from './calculations'
+import { totalMinutes } from './calculations'
 
 describe('dictionary helpers', () => {
   it('reuses an existing value case-insensitively', () => {
-    const items = defaultDictionaries().supervisors
+    const items = seedData.dictionaries.supervisors
     const created = findOrCreateNamed(items, 'dr. maya chen')
     expect(created.id).toBe('sup-maya')
     expect(created.items).toHaveLength(items.length)
@@ -28,39 +28,39 @@ describe('dictionary helpers', () => {
     expect(created.items).toEqual([{ id: created.id, name: 'Alex Rivera', active: true }])
   })
 
-  it('renames and deactivates without changing the id', () => {
-    const renamed = renameItem(defaultDictionaries().terms, 'term-fall-26', 'Autumn 2026')
-    expect(renamed.find(item => item.id === 'term-fall-26')?.name).toBe('Autumn 2026')
-    expect(setItemActive(renamed, 'term-fall-26', false).find(item => item.id === 'term-fall-26')?.active).toBe(false)
+  it('renames and hides without changing the id', () => {
+    const renamed = renameItem(seedData.dictionaries.supervisors, 'sup-jordan', 'Jordan Lee-Smith')
+    expect(renamed.find(item => item.id === 'sup-jordan')?.name).toBe('Jordan Lee-Smith')
+    expect(setItemActive(renamed, 'sup-jordan', false).find(item => item.id === 'sup-jordan')?.active).toBe(false)
   })
 
-  it('blocks removal of values still in use', () => {
+  it('keeps hidden values selectable while they are still attached to an entry', () => {
+    const hidden = setItemActive(seedData.dictionaries.supervisors, 'sup-maya', false)
+    expect(activeItems(hidden, 'sup-maya').map(item => item.id)).toEqual(['sup-maya', 'sup-jordan'])
+    expect(activeItems(hidden).map(item => item.id)).toEqual(['sup-jordan'])
+  })
+
+  it('blocks removal of supervisors still in use', () => {
     expect(dictionaryUsage(seedData, 'supervisors', 'sup-maya')).toBeGreaterThan(0)
     expect(canRemoveDictionaryItem(seedData, 'supervisors', 'sup-maya')).toBe(false)
-    expect(canRemoveDictionaryItem(seedData, 'tags', 'tag-remote')).toBe(true)
-    expect(removeItem(seedData.dictionaries.tags, 'tag-remote').some(item => item.id === 'tag-remote')).toBe(false)
+    const unused = { ...seedData, activities: [] }
+    expect(canRemoveDictionaryItem(unused, 'supervisors', 'sup-maya')).toBe(true)
+    expect(removeItem(unused.dictionaries.supervisors, 'sup-maya').some(item => item.id === 'sup-maya')).toBe(false)
   })
 
-  it('exposes active values for forms', () => {
-    const hidden = setItemActive(defaultDictionaries().tags, 'tag-remote', false)
-    expect(selectableItems(hidden, ['tag-remote']).map(item => item.id)).toEqual(['tag-client', 'tag-assessment', 'tag-remote', 'tag-group', 'tag-outreach'])
-    expect(selectableItems(hidden).map(item => item.id)).toEqual(['tag-client', 'tag-assessment', 'tag-group', 'tag-outreach'])
-  })
-
-  it('scopes demographic values to their kind', () => {
-    const first = findOrCreateDemographic(defaultDictionaries().demographics, 'Prefer not to say', 'gender')
-    expect(first.id).toBe('demo-gender-unknown')
-    const created = findOrCreateDemographic(first.items, 'Prefer not to say', 'language')
-    expect(created.id).not.toBe(first.id)
-    expect(created.items.find(item => item.id === created.id)?.kind).toBe('language')
+  it('never leaves a workspace without an activity type', () => {
+    expect(canRemoveActivityType(seedData, 'type-direct')).toBe(false)
+    const single = { ...seedData, activities: [], activityTypes: [defaultActivityTypes()[0]] }
+    expect(canRemoveActivityType(single, 'type-direct')).toBe(false)
   })
 })
 
 describe('schema migration', () => {
   const legacy = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     activityTypes: [
-      { id: 'type-direct', name: 'Direct practice', shortName: 'Direct', domain: 'Practice', color: '#42564b', defaultDuration: 60, category: 'direct' as const, active: true },
+      { id: 'type-direct', name: 'Direct practice', shortName: 'Direct', domainId: 'dom-practice', color: '#42564b', defaultDuration: 60, category: 'direct' as const, active: true },
+      { id: 'type-supervision', name: 'Supervision', shortName: 'Supervision', domainId: 'dom-growth', color: '#857754', defaultDuration: 90, category: 'supervision', active: true },
     ],
     experiences: [
       { id: 'exp-clinic', name: 'Community placement', organization: 'Riverside', setting: 'Community clinic', targetMinutes: 18000, startDate: '2026-06-01', endDate: '', active: true },
@@ -68,52 +68,59 @@ describe('schema migration', () => {
     activities: [
       {
         id: 'a1', date: '2026-09-14', startTime: '09:00', durationMinutes: 90.4, activityTypeId: 'type-direct',
-        experienceId: 'exp-clinic', supervisor: 'Dr. Maya Chen', setting: 'Community clinic', client: 'Client 014',
-        status: 'confirmed' as const, tags: ['client-facing', 'assessment'], notes: 'Individual session', createdAt: '', updatedAt: '',
+        experienceId: 'exp-clinic', supervisorId: 'sup-maya', setting: 'Community clinic', client: 'Client 014',
+        status: 'unconfirmed' as const, tagIds: ['tag-client'], notes: 'Individual session', createdAt: '', updatedAt: '',
       },
       {
-        id: 'a2', date: '2026-09-13', startTime: '11:00', durationMinutes: 30, activityTypeId: 'type-direct',
+        id: 'a2', date: '2026-09-13', startTime: '11:00', durationMinutes: 30, activityTypeId: 'type-supervision',
         experienceId: 'exp-clinic', supervisor: 'New Supervisor', setting: '', client: '',
-        status: 'unconfirmed' as const, tags: [], notes: '', createdAt: '', updatedAt: '',
+        status: 'scheduled' as const, tagIds: [], notes: '', createdAt: '', updatedAt: '',
       },
     ],
+    dictionaries: { supervisors: [{ id: 'sup-maya', name: 'Dr. Maya Chen', active: true }] },
   }
 
-  it('accepts version 1 backups and writes version 2 data', () => {
+  it('accepts older backups and writes the current version', () => {
     expect(isValidBackup(legacy)).toBe(true)
     const next = migrate(legacy)
     expect(next.schemaVersion).toBe(SCHEMA_VERSION)
-    expect(next.dictionaries.supervisors.some(item => item.name === 'Dr. Maya Chen')).toBe(true)
   })
 
-  it('maps legacy strings onto dictionary ids and keeps integer minutes', () => {
+  it('drops experiences, statuses, clients, and tags while keeping the hours', () => {
     const next = migrateToCurrent(legacy)
-    const first = next.activities[0]
-    expect(first.durationMinutes).toBe(90)
-    expect(first.supervisorId).toBe('sup-maya')
-    expect(first.tagIds).toEqual(['tag-client', 'tag-assessment'])
-    expect(next.activityTypes[0].domainId).toBe('dom-practice')
-    expect(next.experiences[0].organizationTypeId).toBe('org-community')
-    expect(next.activities[1].supervisorId).toBeTruthy()
+    expect(next.activities[0]).toEqual({
+      id: 'a1', date: '2026-09-14', durationMinutes: 90, activityTypeId: 'type-direct',
+      supervisorId: 'sup-maya', notes: 'Individual session', createdAt: '', updatedAt: '',
+    })
+    expect(Object.keys(next.dictionaries)).toEqual(['supervisors'])
+    expect('experiences' in next).toBe(false)
+    // Every entry survives the migration; nothing is filtered by its old status.
+    expect(totalMinutes(next.activities)).toBe(120)
+  })
+
+  it('maps legacy supervisor names and folds supervision into indirect hours', () => {
+    const next = migrateToCurrent(legacy)
     expect(next.dictionaries.supervisors.some(item => item.name === 'New Supervisor')).toBe(true)
-    expect(completedMinutes(next.activities)).toBe(90)
-    expect(sumMinutes(next.activities)).toBe(120)
+    expect(next.activities[1].supervisorId).toBeTruthy()
+    expect(next.activityTypes.map(type => type.category)).toEqual(['direct', 'indirect'])
   })
 
-  it('exports resolved dictionary labels in CSV', () => {
+  it('gives a typeless backup the default direct and indirect types', () => {
+    const next = migrateToCurrent({ schemaVersion: 2, activities: [], activityTypes: [] })
+    expect(next.activityTypes.map(type => type.name)).toEqual(['Direct hours', 'Indirect hours'])
+  })
+
+  it('round-trips a JSON export through the importer', () => {
+    const restored = migrate(JSON.parse(exportJson(seedData)))
+    expect(restored.activities).toEqual(seedData.activities)
+    expect(restored.activityTypes).toEqual(seedData.activityTypes)
+  })
+
+  it('exports hours and resolved names in CSV', () => {
     const csv = toCsv(seedData, seedData.activities.filter(item => item.id === 'a1'))
+    expect(csv).toContain('"Date","Hours","Activity type","Category","Supervisor","Notes"')
+    expect(csv).toContain('"1.5"')
+    expect(csv).toContain('Direct hours')
     expect(csv).toContain('Dr. Maya Chen')
-    expect(csv).toContain('Fall 2026')
-    expect(csv).toContain('client-facing')
-    expect(csv).toContain('90')
-  })
-
-  it('redacts client labels in JSON and CSV exports', () => {
-    const csv = toCsv(seedData, seedData.activities.filter(item => item.id === 'a1'), { redactClients: true })
-    expect(csv).toContain('REDACTED')
-    expect(csv).not.toContain('Client 014')
-    const json = exportJson(seedData, { redactClients: true })
-    expect(json).toContain('REDACTED')
-    expect(json).not.toContain('Client 014')
   })
 })

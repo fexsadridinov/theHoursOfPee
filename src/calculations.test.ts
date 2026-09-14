@@ -1,17 +1,42 @@
 import { describe, expect, it } from 'vitest'
-import { completedMinutes, countsAsApproved, formatDuration, inDateRange, sumMinutes } from './calculations'
+import {
+  categoryMinutes, formatHours, groupMinutes, hoursFromMinutes, inDateRange, minutesFromHours, sumMinutes, totalMinutes,
+} from './calculations'
+import { defaultActivityTypes } from './dictionaries'
 import type { Activity } from './types'
 
-const item = (status: Activity['status'], minutes: number): Activity => ({
-  id: crypto.randomUUID(), date: '2026-09-14', startTime: '09:00', durationMinutes: minutes,
-  activityTypeId: 'type', experienceId: 'exp', supervisorId: '', termId: '', setting: '', client: '',
-  status, tagIds: [], notes: '', createdAt: '', updatedAt: '',
+const item = (minutes: number, activityTypeId = 'type-direct'): Activity => ({
+  id: crypto.randomUUID(), date: '2026-09-14', durationMinutes: minutes, activityTypeId,
+  supervisorId: '', notes: '', createdAt: '', updatedAt: '',
 })
 
-describe('central calculations', () => {
-  it('preserves integer minute totals', () => expect(sumMinutes([item('confirmed', 45), item('approved', 50)])).toBe(95))
-  it('only includes confirmed and approved work', () => expect(completedMinutes([item('scheduled', 60), item('unconfirmed', 30), item('confirmed', 45), item('approved', 15)])).toBe(60))
-  it('counts approved minutes separately', () => expect(sumMinutes([item('confirmed', 45), item('approved', 15)], countsAsApproved)).toBe(15))
-  it('formats durations', () => expect(formatDuration(90)).toBe('1h 30m'))
+describe('hour calculations', () => {
+  it('keeps quarter hours exact through the hours-to-minutes round trip', () => {
+    expect(minutesFromHours(1.5)).toBe(90)
+    expect(minutesFromHours(0.25)).toBe(15)
+    expect(hoursFromMinutes(minutesFromHours(2.75))).toBe(2.75)
+  })
+
+  it('totals every entry, with no status to exclude', () => {
+    expect(totalMinutes([item(45), item(50)])).toBe(95)
+    expect(sumMinutes([item(60), item(30)], activity => activity.durationMinutes > 45)).toBe(60)
+  })
+
+  it('formats minutes as hours', () => {
+    expect(formatHours(90)).toBe('1.5 h')
+    expect(formatHours(60)).toBe('1 h')
+    expect(formatHours(45)).toBe('0.75 h')
+    expect(formatHours(0)).toBe('0 h')
+  })
+
+  it('splits hours into direct and indirect', () => {
+    const split = categoryMinutes([item(60, 'type-direct'), item(30, 'type-indirect'), item(30, 'unknown-type')], defaultActivityTypes())
+    expect(split).toEqual({ direct: 60, indirect: 60 })
+  })
+
+  it('groups by any key', () => {
+    expect(groupMinutes([item(60), item(30)], activity => activity.activityTypeId)).toEqual({ 'type-direct': 90 })
+  })
+
   it('includes both date boundaries', () => expect(inDateRange('2026-09-14', '2026-09-14', '2026-09-14')).toBe(true))
 })
