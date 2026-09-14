@@ -1,0 +1,11 @@
+[functions.create-invite]
+verify_jwt = true
+
+[functions.register-with-invite]
+verify_jwt = false
+
+[functions.admin-user]
+verify_jwt = true
+
+[functions.delete-own-account]
+verify_jwt = true
