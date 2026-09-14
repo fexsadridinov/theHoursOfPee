@@ -32,6 +32,16 @@ export const invitationState = (invite: InvitationRecord | null, now = Date.now(
   return 'valid' as const
 }
 
+export const invitationStatusLabel = (
+  invite: { acceptedAt: string | null, revokedAt: string | null, expiresAt: string },
+  now = Date.now(),
+) => {
+  if (invite.acceptedAt) return 'Accepted'
+  if (invite.revokedAt) return 'Revoked'
+  if (new Date(invite.expiresAt).getTime() <= now) return 'Expired'
+  return 'Awaiting first sign-in'
+}
+
 export const canAcceptInvitation = (invite: InvitationRecord | null, email: string, tokenHash: string, now = Date.now()) => {
   if (!invite || invite.tokenHash !== tokenHash || invite.email.trim().toLowerCase() !== email.trim().toLowerCase()) {
     return { ok: false as const, reason: 'generic' as const }

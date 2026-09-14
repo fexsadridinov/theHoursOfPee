@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity as ActivityIcon, BookMarked, CalendarDays, Check, ChevronLeft, ChevronRight,
-  CircleAlert, Clock3, Database, Download, FileBarChart, LayoutDashboard, Menu, MoreHorizontal,
-  Plus, Search, Settings, SlidersHorizontal, Sparkles, Target, Trash2, Upload, Users, X,
+  CircleAlert, Clock3, Database, Download, FileBarChart, LayoutDashboard, LogOut, Menu, MoreHorizontal,
+  Plus, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Target, Trash2, Upload, UserCircle, Users, X,
 } from 'lucide-react'
 import { categoryMinutes, completedMinutes, formatDuration, groupMinutes, inDateRange, sumMinutes } from './calculations'
 import { download, exportJson, isValidBackup, migrate, resetData, toCsv } from './data'
 import { useAuth, navigate } from './auth/AuthProvider'
+import { AccountPage, AdminPage } from './auth/pages'
+import { entityCounts } from './migration'
 import { useWorkspace } from './workspace/WorkspaceProvider'
 import {
   activeItems, canRemoveDictionaryItem, demographicKinds, dictionaryMeta, dictionaryUsage,
@@ -15,6 +17,7 @@ import {
 import type { Activity, ActivityStatus, AppData, DemographicKind, Dictionaries, DictionaryItem, DictionaryKey, Experience } from './types'
 
 type Page = 'dashboard' | 'calendar' | 'activities' | 'experiences' | 'reports' | 'settings'
+export type Section = 'admin' | 'account'
 
 const today = () => new Date().toLocaleDateString('en-CA')
 const uid = () => crypto.randomUUID()
@@ -31,7 +34,49 @@ const emptyActivity = (data: AppData, date = today()): Activity => ({
   tagIds: [], notes: '', createdAt: '', updatedAt: '',
 })
 
-function App() {
+function SaveBanner() {
+  const { status, retry, kind } = useWorkspace()
+  // "Saved" is reassurance, not a permanent state, so it fades out instead of holding a bar on every page.
+  const [showSaved, setShowSaved] = useState(false)
+  useEffect(() => {
+    if (status !== 'saved') return
+    setShowSaved(true)
+    const id = window.setTimeout(() => setShowSaved(false), 2400)
+    return () => clearTimeout(id)
+  }, [status])
+  if (kind === 'local') return null
+  if (status === 'saved') return showSaved ? <div className="sync-banner saved" role="status">Online and saved</div> : null
+  if (status === 'saving') return <div className="sync-banner" role="status">Saving…</div>
+  if (status === 'offline') return <div className="sync-banner warn" role="status">Your changes could not be saved. Check your connection and try again.</div>
+  if (status === 'expired') return <div className="sync-banner warn" role="status">Your session expired. Please sign in again. <button className="text-button" onClick={() => navigate('/login')}>Sign in</button></div>
+  return <div className="sync-banner warn" role="status">Your changes could not be saved. Check your connection and try again. <button className="text-button" onClick={retry}>Retry</button></div>
+}
+
+function MigrationModal() {
+  const { migration, resolveMigration } = useWorkspace()
+  if (!migration) return null
+  const counts = entityCounts(migration.local)
+  return <div className="modal-layer"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="migrate-title">
+    <h2 id="migrate-title">Upload local data?</h2>
+    <p>This browser has a local workspace. Upload adds missing records only and never overwrites remote rows.</p>
+    <ul className="migrate-counts">
+      <li>Activities: {counts.activities}</li>
+      <li>Experiences: {counts.experiences}</li>
+      <li>Supervisors: {counts.supervisors}</li>
+      <li>Clients (anonymous labels): {counts.clients}</li>
+      <li>Activity types: {counts.activityTypes}</li>
+      <li>Recurrence series: {counts.recurrenceSeries}</li>
+      <li>Requirements: {counts.requirements}</li>
+    </ul>
+    <div className="modal-actions">
+      <button className="primary" onClick={() => void resolveMigration('upload')}>Upload local data</button>
+      <button className="secondary" onClick={() => void resolveMigration('keep')}>Keep local data only</button>
+      <button className="danger-text" onClick={() => void resolveMigration('cancel')}>Cancel</button>
+    </div>
+  </div></div>
+}
+
+function App({ section }: { section?: Section }) {
   const { data, setData, recordAudit, kind } = useWorkspace()
   const { remote, profile, signOut } = useAuth()
   const [page, setPage] = useState<Page>('dashboard')
@@ -62,33 +107,55 @@ function App() {
     ['reports', FileBarChart, 'Reports'], ['settings', Settings, 'Settings'],
   ] as const
 
+  const goDashboard = () => { setPage('dashboard'); setNavOpen(false); if (section) navigate('/') }
+  const openPage = (next: Page) => { setPage(next); setNavOpen(false); if (section) navigate('/') }
+  const openSection = (path: string) => { setNavOpen(false); navigate(path) }
+  const currentLabel = section === 'admin' ? 'Users & invitations'
+    : section === 'account' ? 'Account & security'
+    : nav.find(([id]) => id === page)?.[2] ?? 'Overview'
+  const atDashboard = !section && page === 'dashboard'
+
   return <div className="app-shell">
-    <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
-      <div className="brand"><div className="brand-mark">HP</div><div><strong>the Hours of Pee</strong><span>personal hours tracker</span></div></div>
+    <aside className={`sidebar ${navOpen ? 'open' : ''}`} id="app-sidebar">
+      <button type="button" className="brand" onClick={goDashboard} aria-label="the Hours of Pee — go to overview">
+        <div className="brand-mark">HP</div><div><strong>the Hours of Pee</strong><span>personal hours tracker</span></div>
+      </button>
       <nav aria-label="Main navigation">
-        {nav.map(([id, Icon, label]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => { setPage(id); setNavOpen(false) }}><Icon size={19}/><span>{label}</span></button>)}
-        {remote && <button onClick={() => navigate('/account')}><Users size={19}/><span>Account</span></button>}
-        {profile?.role === 'admin' && <button onClick={() => navigate('/admin')}><Sparkles size={19}/><span>Admin</span></button>}
-        {remote && <button onClick={() => void signOut().then(() => navigate('/login'))}><span>Sign out</span></button>}
+        <span className="nav-label">Workspace</span>
+        {nav.map(([id, Icon, label]) => <button key={id} type="button" aria-current={!section && page === id ? 'page' : undefined} className={!section && page === id ? 'active' : ''} onClick={() => openPage(id)}><Icon size={19}/><span>{label}</span></button>)}
+        {remote && <>
+          <span className="nav-label">Your account</span>
+          <button type="button" aria-current={section === 'account' ? 'page' : undefined} className={section === 'account' ? 'active' : ''} onClick={() => openSection('/account')}><UserCircle size={19}/><span>Account</span></button>
+          {profile?.role === 'admin' && <button type="button" aria-current={section === 'admin' ? 'page' : undefined} className={section === 'admin' ? 'active' : ''} onClick={() => openSection('/admin')}><ShieldCheck size={19}/><span>Admin</span></button>}
+          <button type="button" className="nav-signout" onClick={() => void signOut().then(() => navigate('/login'))}><LogOut size={19}/><span>Sign out</span></button>
+        </>}
       </nav>
       <div className="privacy-note"><Sparkles size={17}/><div><strong>{kind === 'remote' ? 'Private account' : 'Local & private'}</strong><span>{kind === 'remote' ? 'Your rows are isolated by account. Use anonymous client labels only.' : 'Your data never leaves this browser.'}</span></div></div>
     </aside>
     {navOpen && <button className="backdrop" aria-label="Close menu" onClick={() => setNavOpen(false)}/>}
     <main>
       <header className="topbar">
-        <button className="icon-button menu-button" onClick={() => setNavOpen(true)}><Menu size={21}/></button>
-        <div className="eyebrow">PERSONAL WORKSPACE</div>
+        <button className="icon-button menu-button" aria-label="Open navigation" aria-controls="app-sidebar" aria-expanded={navOpen} onClick={() => setNavOpen(true)}><Menu size={21}/></button>
+        <div className="crumbs">
+          {atDashboard
+            ? <span className="eyebrow">PERSONAL WORKSPACE</span>
+            : <><button type="button" className="crumb-home" onClick={goDashboard}><LayoutDashboard size={15}/><span>Dashboard</span></button><ChevronRight size={14} aria-hidden/><span className="crumb-current">{currentLabel}</span></>}
+        </div>
         <button className="primary compact" onClick={() => openNew()}><Plus size={18}/> Add activity</button>
       </header>
-      {page === 'dashboard' && <Dashboard data={data} openNew={openNew} edit={setEditing} go={setPage}/>}
-      {page === 'calendar' && <Calendar data={data} openNew={openNew} edit={setEditing}/>}
-      {page === 'activities' && <Activities data={data} setData={setData} edit={setEditing} openNew={openNew} notify={setToast}/>}
-      {page === 'experiences' && <Experiences data={data} setData={setData}/>}
-      {page === 'reports' && <Reports data={data}/>}
-      {page === 'settings' && <SettingsPage data={data} setData={setData} notify={setToast}/>}
+      <SaveBanner />
+      {section === 'admin' ? <AdminPage/> : section === 'account' ? <AccountPage/> : <>
+        {page === 'dashboard' && <Dashboard data={data} openNew={openNew} edit={setEditing} go={setPage}/>}
+        {page === 'calendar' && <Calendar data={data} openNew={openNew} edit={setEditing}/>}
+        {page === 'activities' && <Activities data={data} setData={setData} edit={setEditing} openNew={openNew} notify={setToast}/>}
+        {page === 'experiences' && <Experiences data={data} setData={setData}/>}
+        {page === 'reports' && <Reports data={data}/>}
+        {page === 'settings' && <SettingsPage data={data} setData={setData} notify={setToast}/>}
+      </>}
     </main>
+    <MigrationModal />
     {editing && <ActivityDialog activity={editing} data={data} setData={setData} close={() => setEditing(null)} save={saveActivity} remove={removeActivity}/>}
-    {toast && <div className="toast"><Check size={17}/>{toast}</div>}
+    {toast && <div className="toast" role="status"><Check size={17}/>{toast}</div>}
   </div>
 }
 

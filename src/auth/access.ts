@@ -8,6 +8,7 @@ export interface Profile {
   displayName: string
   role: Role
   status: AccountStatus
+  mustChangePassword: boolean
   createdAt: string
   updatedAt: string
 }
@@ -30,7 +31,29 @@ export const ownershipUserId = (sessionUserId: string, attempted?: string) => {
   return sessionUserId
 }
 
-export type RouteDecision = 'public' | 'login' | 'confirm' | 'suspended' | 'forbidden' | 'app' | 'account' | 'admin'
+export type RouteDecision = 'public' | 'login' | 'confirm' | 'suspended' | 'password' | 'forbidden' | 'app' | 'account' | 'admin'
+
+export const needsPasswordChange = (profile: Profile | null) => Boolean(canUseApp(profile) && profile?.mustChangePassword)
+
+export const passwordProblem = (password: string, confirm: string) => {
+  if (password.length < 8) return 'Use at least 8 characters.'
+  if (password !== confirm) return 'Both passwords must match.'
+  return null
+}
+
+export type FunctionReply = { ok?: boolean, emailed?: boolean, message?: string }
+
+// supabase-js hides the response body on non-2xx replies, and Edge Functions explain what an admin must fix.
+export const functionErrorBody = async (error: unknown): Promise<FunctionReply | null> => {
+  const response = (error as { context?: { json?: () => Promise<unknown> } } | null)?.context
+  if (!response || typeof response.json !== 'function') return null
+  try {
+    const body = await response.json()
+    return body && typeof body === 'object' ? body as FunctionReply : null
+  } catch {
+    return null
+  }
+}
 
 export const publicPaths = [
   '/login', '/invite', '/register', '/confirm-email', '/forgot-password', '/reset-password',
@@ -62,6 +85,7 @@ export const decideRoute = (path: string, session: SessionState, profile: Profil
   if (!session.emailConfirmed && pathname !== '/confirm-email') return 'confirm'
   if (isSuspended(profile)) return 'suspended'
   if (!canUseApp(profile)) return 'login'
+  if (needsPasswordChange(profile)) return 'password'
   if (pathname.startsWith('/admin')) return isAdmin(profile) ? 'admin' : 'forbidden'
   if (pathname.startsWith('/account')) return 'account'
   return 'app'

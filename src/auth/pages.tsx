@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { GENERIC_AUTH_ERROR, GENERIC_INVITE_RESPONSE } from './access'
+import { KeyRound, LogOut, Mail, Trash2, UserCircle } from 'lucide-react'
+import { functionErrorBody, GENERIC_AUTH_ERROR, GENERIC_INVITE_RESPONSE, passwordProblem } from './access'
+import { invitationStatusLabel } from './invitations'
 import { navigate, useAuth } from './AuthProvider'
 import { getSupabase } from '../repository/supabase'
 import { supabaseUrl, supabaseAnonKey } from '../config'
@@ -139,6 +141,31 @@ export function ResetPasswordPage() {
   </AuthLayout>
 }
 
+export function SetPasswordPage() {
+  const { completeFirstPassword, session, signOut } = useAuth()
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const submit = async () => {
+    const problem = passwordProblem(password, confirm)
+    if (problem) { setError(problem); return }
+    setError(''); setSaving(true)
+    const next = await completeFirstPassword(password)
+    setSaving(false)
+    if (next) setError(next)
+    else navigate('/')
+  }
+  return <AuthLayout title="Choose your password" copy="You signed in with a one-time password. Set your own password to finish setting up this account.">
+    <p className="auth-note">{session?.email}</p>
+    <label>New password<input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)}/></label>
+    <label>Confirm password<input type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)}/></label>
+    {error && <p className="auth-error">{error}</p>}
+    <button className="primary" disabled={saving} onClick={() => void submit()}>{saving ? 'Saving…' : 'Save password and continue'}</button>
+    <div className="auth-links"><button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button></div>
+  </AuthLayout>
+}
+
 export function SuspendedPage() {
   const { signOut } = useAuth()
   return <AuthLayout title="Account suspended" copy="You do not have permission to access this page.">
@@ -158,15 +185,51 @@ export function AccountPage() {
   const { session, profile, updatePassword, updateDisplayName, deleteAccount, signOut } = useAuth()
   const [name, setName] = useState(profile?.displayName ?? '')
   const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [passwordError, setPasswordError] = useState('')
   const [message, setMessage] = useState('')
-  return <section className="page"><div className="page-heading"><div><span className="kicker">YOUR ACCOUNT</span><h1>Account & security</h1><p>Manage sign-in, password, and the private copy of your data.</p></div></div>
+  useEffect(() => { if (!message) return; const id = window.setTimeout(() => setMessage(''), 2600); return () => clearTimeout(id) }, [message])
+  const changePassword = async () => {
+    const problem = passwordProblem(password, confirm)
+    if (problem) { setPasswordError(problem); return }
+    setPasswordError('')
+    const next = await updatePassword(password)
+    if (next) { setPasswordError(next); return }
+    setPassword(''); setConfirm(''); setMessage('Password updated')
+  }
+  return <section className="page">
+    <div className="page-heading"><div><span className="kicker">YOUR ACCOUNT</span><h1>Account &amp; security</h1><p>Manage sign-in, password, and the private copy of your data.</p></div></div>
     <div className="settings-grid">
-      <article className="panel settings-card"><h2>Profile</h2><p>{session?.email}</p><label>Display name<input value={name} onChange={e => setName(e.target.value)}/></label><button className="primary compact" onClick={() => void updateDisplayName(name).then(() => setMessage('Name saved'))}>Save name</button></article>
-      <article className="panel settings-card"><h2>Password</h2><label>New password<input type="password" value={password} onChange={e => setPassword(e.target.value)}/></label><button className="secondary compact" onClick={async () => setMessage(await updatePassword(password) ?? 'Password updated')}>Change password</button></article>
-      <article className="panel settings-card"><h2>Session</h2><p>Sign out of this browser. Your data stays in your private account.</p><button className="secondary" onClick={() => void signOut().then(() => navigate('/login'))}>Sign out</button></article>
-      <article className="panel settings-card danger-card"><h2>Delete account</h2><p>Permanently delete your login and application rows. Type DELETE to confirm.</p><button className="danger" onClick={async () => { if (prompt('Type DELETE to remove this account.') !== 'DELETE') return; await deleteAccount(); navigate('/login') }}>Delete my account</button></article>
+      <article className="panel settings-card">
+        <div className="settings-icon"><UserCircle/></div>
+        <h2>Profile</h2>
+        <p>Signed in as {session?.email}{profile?.role === 'admin' ? ' · administrator' : ''}.</p>
+        <label className="stacked-field">Display name<input value={name} onChange={e => setName(e.target.value)}/></label>
+        <div className="button-row"><button className="primary compact" onClick={() => void updateDisplayName(name).then(() => setMessage('Name saved'))}>Save name</button></div>
+      </article>
+      <article className="panel settings-card">
+        <div className="settings-icon"><KeyRound/></div>
+        <h2>Password</h2>
+        <p>Use at least 8 characters. You stay signed in on this device after changing it.</p>
+        <label className="stacked-field">New password<input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)}/></label>
+        <label className="stacked-field">Confirm password<input type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)}/></label>
+        {passwordError && <p className="auth-error">{passwordError}</p>}
+        <div className="button-row"><button className="secondary compact" disabled={!password} onClick={() => void changePassword()}>Change password</button></div>
+      </article>
+      <article className="panel settings-card">
+        <div className="settings-icon"><LogOut/></div>
+        <h2>Session</h2>
+        <p>Sign out of this browser. Your data stays in your private account.</p>
+        <div className="button-row"><button className="secondary" onClick={() => void signOut().then(() => navigate('/login'))}>Sign out</button></div>
+      </article>
+      <article className="panel settings-card danger-card">
+        <div className="settings-icon"><Trash2/></div>
+        <h2>Delete account</h2>
+        <p>Permanently delete your login and application rows. This cannot be undone.</p>
+        <div className="button-row"><button className="danger" onClick={async () => { if (prompt('Type DELETE to remove this account.') !== 'DELETE') return; await deleteAccount(); navigate('/login') }}>Delete my account</button></div>
+      </article>
     </div>
-    {message && <div className="toast">{message}</div>}
+    {message && <div className="toast" role="status">{message}</div>}
   </section>
 }
 
@@ -178,49 +241,109 @@ type InvitationRow = {
   revoked_at: string | null
 }
 
+type PersonRow = { id: string, email: string, role: string, status: string, must_change_password: boolean }
+
+const inviteStatus = (row: InvitationRow) =>
+  invitationStatusLabel({ acceptedAt: row.accepted_at, revokedAt: row.revoked_at, expiresAt: row.expires_at })
+
 export function AdminPage() {
+  const { session } = useAuth()
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
-  const [users, setUsers] = useState<{ id: string, email: string, role: string, status: string }[]>([])
+  const [failed, setFailed] = useState(false)
+  const [busy, setBusy] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [users, setUsers] = useState<PersonRow[]>([])
   const [invites, setInvites] = useState<InvitationRow[]>([])
   const load = async () => {
     const supabase = getSupabase()
-    const { data: profiles } = await supabase.from('profiles').select('id, email, role, status')
+    const { data: profiles } = await supabase.from('profiles').select('id, email, role, status, must_change_password').order('email')
     const { data: invitations } = await supabase.from('invitations').select('id, email, expires_at, accepted_at, revoked_at').order('created_at', { ascending: false })
-    setUsers(profiles ?? []); setInvites(invitations ?? [])
+    setUsers((profiles ?? []) as PersonRow[]); setInvites((invitations ?? []) as InvitationRow[]); setLoading(false)
   }
   useEffect(() => { void load() }, [])
-  const invite = async (action: 'create' | 'replace', invitationId?: string) => {
-    const { data, error } = await getSupabase().functions.invoke('create-invite', {
-      body: { email, action, invitationId },
-    })
-    const body = data as { ok?: boolean, emailed?: boolean, message?: string } | null
-    if (error || !body?.ok) setMessage(GENERIC_AUTH_ERROR)
-    else setMessage(body.message ?? (body.emailed ? 'Invitation email sent.' : 'Invitation saved. Email delivery is not configured.'))
-    setEmail(''); void load()
+  const call = async (body: Record<string, unknown>, key: string) => {
+    setBusy(key); setMessage(''); setFailed(false)
+    const { data, error } = await getSupabase().functions.invoke('create-invite', { body })
+    let result = data as { ok?: boolean, emailed?: boolean, message?: string } | null
+    // supabase-js drops the body on non-2xx replies, and the function explains what an admin must fix.
+    if (error) result = await functionErrorBody(error) ?? result
+    setBusy('')
+    if (error || !result?.ok) {
+      setFailed(true)
+      setMessage(result?.message ?? GENERIC_AUTH_ERROR)
+    } else {
+      setFailed(false)
+      setMessage(result.message ?? 'Invitation sent.')
+    }
+    await load()
+  }
+  const invite = async (action: 'create' | 'replace', target: string, invitationId?: string) => {
+    if (!target.includes('@')) { setFailed(true); setMessage('Enter a valid email address.'); return }
+    await call({ email: target, action, invitationId }, `${action}:${invitationId ?? target}`)
+    if (action === 'create') setEmail('')
   }
   const revoke = async (invitationId: string) => {
-    const { error } = await getSupabase().functions.invoke('create-invite', { body: { action: 'revoke', invitationId } })
-    setMessage(error ? GENERIC_AUTH_ERROR : 'Invitation revoked.')
-    void load()
+    if (!confirm('Revoke this invitation? The one-time password stops working.')) return
+    await call({ action: 'revoke', invitationId }, `revoke:${invitationId}`)
   }
   const act = async (userId: string, action: string) => {
-    if (action === 'delete' && !confirm('Delete this user and their data?')) return
-    await getSupabase().functions.invoke('admin-user', { body: { userId, action } })
-    void load()
+    if (action === 'delete' && !confirm('Delete this user and all of their data? This cannot be undone.')) return
+    setBusy(`${action}:${userId}`)
+    const { error } = await getSupabase().functions.invoke('admin-user', { body: { userId, action } })
+    setBusy('')
+    setFailed(Boolean(error))
+    setMessage(error ? GENERIC_AUTH_ERROR : 'User updated.')
+    await load()
   }
-  const inviteStatus = (row: InvitationRow) => {
-    if (row.accepted_at) return 'Accepted'
-    if (row.revoked_at) return 'Revoked'
-    if (new Date(row.expires_at).getTime() <= Date.now()) return 'Expired'
-    return 'Pending'
-  }
-  return <section className="page"><div className="page-heading"><div><span className="kicker">ADMINISTRATION</span><h1>Users & invitations</h1><p>Invite people by email. Members only see their own private data.</p></div></div>
-    <article className="panel settings-card"><h2>Send invitation</h2><div className="dict-add"><input type="email" placeholder="person@example.com" value={email} onChange={e => setEmail(e.target.value)}/><button className="primary compact" onClick={() => void invite('create')}>Invite</button></div>{message && <p className="auth-note">{message}</p>}</article>
-    <article className="panel table-panel"><div className="panel-head"><h2>People</h2></div><div className="table-scroll"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th/></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.email}</td><td>{user.role}</td><td>{user.status}</td><td className="button-row">{user.status === 'active' ? <button className="secondary compact" onClick={() => void act(user.id, 'suspend')}>Suspend</button> : <button className="secondary compact" onClick={() => void act(user.id, 'reactivate')}>Reactivate</button>}<button className="danger-text" onClick={() => void act(user.id, 'delete')}>Delete</button></td></tr>)}</tbody></table></div></article>
-    <article className="panel table-panel"><div className="panel-head"><h2>Invitations</h2></div><div className="table-scroll"><table><thead><tr><th>Email</th><th>Expires</th><th>Status</th><th/></tr></thead><tbody>{invites.map(row => <tr key={row.id}><td>{row.email}</td><td>{new Date(row.expires_at).toLocaleString()}</td><td>{inviteStatus(row)}</td><td className="button-row">{!row.accepted_at && !row.revoked_at && <>
-      <button className="secondary compact" onClick={() => { setEmail(row.email); void invite('replace', row.id) }}>Replace</button>
-      <button className="danger-text" onClick={() => void revoke(row.id)}>Revoke</button>
-    </>}</td></tr>)}</tbody></table></div></article>
+  return <section className="page">
+    <div className="page-heading"><div><span className="kicker">ADMINISTRATION</span><h1>Users &amp; invitations</h1><p>Invite people by email. Each person only ever sees their own private data.</p></div></div>
+    <article className="panel settings-card admin-invite">
+      <div className="settings-icon"><Mail/></div>
+      <h2>Invite someone</h2>
+      <p>We email a one-time password. On first sign-in they must choose their own password before the workspace opens.</p>
+      <form className="dict-add" onSubmit={e => { e.preventDefault(); void invite('create', email.trim().toLowerCase()) }}>
+        <label className="sr-only" htmlFor="invite-email">Email address to invite</label>
+        <input id="invite-email" type="email" placeholder="person@example.com" value={email} onChange={e => setEmail(e.target.value)}/>
+        <button className="primary compact" type="submit" disabled={!email.trim() || busy.startsWith('create')}>{busy.startsWith('create') ? 'Sending…' : 'Send invitation'}</button>
+      </form>
+      {message && <p className={failed ? 'auth-error' : 'auth-note'} role="status">{message}</p>}
+    </article>
+    <article className="panel table-panel">
+      <div className="panel-head"><div><span className="kicker">ACCESS</span><h2>People</h2></div><span className="count-badge">{users.length}</span></div>
+      {loading ? <div className="empty-mini">Loading people…</div> : users.length ? <div className="table-scroll"><table>
+        <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Password</th><th/></tr></thead>
+        <tbody>{users.map(user => <tr key={user.id}>
+          <td>{user.email}{user.id === session?.userId && <small>You</small>}</td>
+          <td>{user.role}</td>
+          <td><span className={`status ${user.status === 'active' ? 'confirmed' : 'rejected'}`}><i/>{user.status}</span></td>
+          <td>{user.must_change_password ? 'One-time password' : 'Set by user'}</td>
+          <td className="button-row">
+            {user.id === session?.userId ? <small>—</small> : <>
+              {user.status === 'active'
+                ? <button className="secondary compact" disabled={busy === `suspend:${user.id}`} onClick={() => void act(user.id, 'suspend')}>Suspend</button>
+                : <button className="secondary compact" disabled={busy === `reactivate:${user.id}`} onClick={() => void act(user.id, 'reactivate')}>Reactivate</button>}
+              <button className="secondary compact" disabled={busy === `replace:${user.email}`} onClick={() => void invite('replace', user.email)}>Reset password</button>
+              <button className="danger-text" disabled={busy === `delete:${user.id}`} onClick={() => void act(user.id, 'delete')}>Delete</button>
+            </>}
+          </td>
+        </tr>)}</tbody>
+      </table></div> : <div className="empty-mini">No accounts yet.</div>}
+    </article>
+    <article className="panel table-panel">
+      <div className="panel-head"><div><span className="kicker">AUDIT</span><h2>Invitations</h2></div><span className="count-badge">{invites.length}</span></div>
+      {loading ? <div className="empty-mini">Loading invitations…</div> : invites.length ? <div className="table-scroll"><table>
+        <thead><tr><th>Email</th><th>Expires</th><th>Status</th><th/></tr></thead>
+        <tbody>{invites.map(row => <tr key={row.id}>
+          <td>{row.email}</td>
+          <td>{new Date(row.expires_at).toLocaleString()}</td>
+          <td>{inviteStatus(row)}</td>
+          <td className="button-row">{!row.accepted_at && !row.revoked_at && <>
+            <button className="secondary compact" disabled={busy === `replace:${row.id}`} onClick={() => void invite('replace', row.email, row.id)}>Resend</button>
+            <button className="danger-text" disabled={busy === `revoke:${row.id}`} onClick={() => void revoke(row.id)}>Revoke</button>
+          </>}</td>
+        </tr>)}</tbody>
+      </table></div> : <div className="empty-mini">No invitations sent yet.</div>}
+    </article>
   </section>
 }

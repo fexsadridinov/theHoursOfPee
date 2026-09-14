@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { authStatusFrom, canUseApp, decideRoute, isAdmin, isSuspended, ownershipUserId } from './access'
-import { canAcceptInvitation, expiresAtFrom, generateInviteToken, hashInviteToken, invitationState, isRateLimited, markAccepted, type InvitationRecord } from './invitations'
+import { authStatusFrom, canUseApp, decideRoute, functionErrorBody, isAdmin, isSuspended, needsPasswordChange, ownershipUserId, passwordProblem } from './access'
+import { canAcceptInvitation, expiresAtFrom, generateInviteToken, hashInviteToken, invitationState, invitationStatusLabel, isRateLimited, markAccepted, type InvitationRecord } from './invitations'
 
 const profile = (overrides = {}) => ({
   id: 'user-a', email: 'a@example.com', displayName: 'A', role: 'member' as const, status: 'active' as const,
-  createdAt: '', updatedAt: '', ...overrides,
+  mustChangePassword: false, createdAt: '', updatedAt: '', ...overrides,
 })
+const activeSession = { userId: 'user-a', email: 'a@example.com', emailConfirmed: true }
 
 describe('route access', () => {
   it('sends anonymous remote users to login', () => {
@@ -32,6 +33,24 @@ describe('route access', () => {
     expect(() => ownershipUserId('user-a', 'user-b')).toThrow('Ownership violation')
     expect(ownershipUserId('user-a')).toBe('user-a')
   })
+  it('holds a one-time password user on the set-password screen', () => {
+    const invited = profile({ mustChangePassword: true })
+    expect(needsPasswordChange(invited)).toBe(true)
+    expect(decideRoute('/', activeSession, invited, true)).toBe('password')
+    expect(decideRoute('/admin', activeSession, profile({ mustChangePassword: true, role: 'admin' }), true)).toBe('password')
+    expect(decideRoute('/', activeSession, profile(), true)).toBe('app')
+  })
+  it('requires a long, matching password', () => {
+    expect(passwordProblem('short', 'short')).toBe('Use at least 8 characters.')
+    expect(passwordProblem('longenough', 'different')).toBe('Both passwords must match.')
+    expect(passwordProblem('longenough', 'longenough')).toBeNull()
+  })
+  it('reads the message an Edge Function returns with a failing status', async () => {
+    const failure = { context: { json: async () => ({ ok: false, message: 'Email delivery is not configured.' }) } }
+    expect(await functionErrorBody(failure)).toEqual({ ok: false, message: 'Email delivery is not configured.' })
+    expect(await functionErrorBody(new Error('network'))).toBeNull()
+    expect(await functionErrorBody({ context: { json: async () => { throw new Error('not json') } } })).toBeNull()
+  })
   it('exposes explicit auth states', () => {
     expect(authStatusFrom(true, null, null, null)).toBe('loading')
     expect(authStatusFrom(false, null, null, null)).toBe('unauthenticated')
@@ -49,6 +68,13 @@ describe('invitations', () => {
 
   it('expires after the deadline', () => {
     expect(invitationState(invite({ expiresAt: new Date(Date.now() - 1000).toISOString() }))).toBe('expired')
+  })
+
+  it('labels an invitation for the admin table', () => {
+    expect(invitationStatusLabel(invite())).toBe('Awaiting first sign-in')
+    expect(invitationStatusLabel(invite({ acceptedAt: new Date().toISOString() }))).toBe('Accepted')
+    expect(invitationStatusLabel(invite({ revokedAt: new Date().toISOString() }))).toBe('Revoked')
+    expect(invitationStatusLabel(invite({ expiresAt: new Date(Date.now() - 1000).toISOString() }))).toBe('Expired')
   })
 
   it('rejects revoked invitations', () => {

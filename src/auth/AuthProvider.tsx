@@ -16,15 +16,18 @@ interface AuthContextValue {
   signOut: () => Promise<void>
   requestReset: (email: string) => Promise<string | null>
   updatePassword: (password: string) => Promise<string | null>
+  completeFirstPassword: (password: string) => Promise<string | null>
   updateDisplayName: (name: string) => Promise<void>
   deleteAccount: () => Promise<string | null>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const mapProfile = (row: Record<string, string>): Profile => ({
-  id: row.id, email: row.email, displayName: row.display_name, role: row.role as Profile['role'],
-  status: row.status as Profile['status'], createdAt: row.created_at, updatedAt: row.updated_at,
+const mapProfile = (row: Record<string, unknown>): Profile => ({
+  id: String(row.id), email: String(row.email ?? ''), displayName: String(row.display_name ?? ''),
+  role: row.role as Profile['role'], status: row.status as Profile['status'],
+  mustChangePassword: row.must_change_password === true,
+  createdAt: String(row.created_at ?? ''), updatedAt: String(row.updated_at ?? ''),
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -69,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLoading(false)
           return
         }
-        setProfile(data ? mapProfile(data as Record<string, string>) : null)
+        setProfile(data ? mapProfile(data as Record<string, unknown>) : null)
         setErrorMessage(null)
         setLoading(false)
       } catch {
@@ -104,6 +107,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     updatePassword: async (password) => {
       const { error } = await getSupabase().auth.updateUser({ password })
       return error ? GENERIC_AUTH_ERROR : null
+    },
+    completeFirstPassword: async (password) => {
+      const supabase = getSupabase()
+      const { error } = await supabase.auth.updateUser({ password })
+      if (error || !session) return GENERIC_AUTH_ERROR
+      const { error: profileError } = await supabase.from('profiles')
+        .update({ must_change_password: false }).eq('id', session.userId)
+      if (profileError) return GENERIC_AUTH_ERROR
+      setProfile(current => current ? { ...current, mustChangePassword: false } : current)
+      return null
     },
     updateDisplayName: async (name) => {
       if (!session) return

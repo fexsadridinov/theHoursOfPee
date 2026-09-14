@@ -33,7 +33,8 @@ pnpm test:e2e    # Playwright (optional; install Playwright browsers first)
    - `VITE_INVITE_EXPIRATION_HOURS` (default 72)
 3. Put **only** on the server / Edge Functions, never in `VITE_*`:
    - `SUPABASE_SERVICE_ROLE_KEY`
-   - `RESEND_API_KEY` and `INVITE_FROM_EMAIL` if you send invitation mail
+   - `SMTP_USERNAME`, `SMTP_PASSWORD`, `INVITE_FROM_EMAIL` (mailbox that sends invitations)
+   - `SMTP_HOST` and `SMTP_PORT` (optional; default `smtp.gmail.com` and `465`)
    - `APP_URL` (public site origin used in invitation emails)
 4. Authentication → Providers: Email enabled, **public sign-ups disabled**.
 5. Enable **Confirm email**.
@@ -53,7 +54,17 @@ supabase functions deploy admin-user
 supabase functions deploy delete-own-account
 ```
 
-Set Edge Function secrets: `SUPABASE_SERVICE_ROLE_KEY`, `APP_URL`, and optionally `RESEND_API_KEY`, `INVITE_FROM_EMAIL`, `INVITE_EXPIRATION_HOURS`.
+Set Edge Function secrets: `SUPABASE_SERVICE_ROLE_KEY`, `APP_URL`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `INVITE_FROM_EMAIL`, and optionally `SMTP_HOST`, `SMTP_PORT`, `INVITE_EXPIRATION_HOURS`.
+
+```bash
+supabase secrets set \
+  INVITE_FROM_EMAIL='you@gmail.com' \
+  SMTP_USERNAME='you@gmail.com' \
+  SMTP_PASSWORD='<16-character Google app password>' \
+  APP_URL='https://<production-domain>'
+```
+
+Gmail needs an **app password** (Google Account → Security → 2-Step Verification → App passwords); a normal account password is rejected by `smtp.gmail.com`.
 
 10. Bootstrap the first administrator after that person’s profile row exists:
 
@@ -61,17 +72,28 @@ Set Edge Function secrets: `SUPABASE_SERVICE_ROLE_KEY`, `APP_URL`, and optionall
 update public.profiles set role = 'admin' where email = 'you@example.com';
 ```
 
-If invitation email is not configured, creating an invite records the hashed token but **does not pretend an email was sent** and does not display the token in the browser.
+### Invitations
+
+An admin enters an email address on `/admin`. The `create-invite` function then:
+
+1. Refuses up front, changing nothing, when the mail secrets are missing. It never pretends an email was sent.
+2. Creates (or resets) the account with a random **one-time password**, marks `profiles.must_change_password`, and stores only a SHA-256 hash of that password in `invitations`.
+3. Emails the sign-in link and the one-time password from `INVITE_FROM_EMAIL`. The password is never returned to the browser or written to logs.
+4. Revokes the invitation and suspends the account if the email fails to send, so no account is left with a password nobody knows.
+
+On first sign-in the person is held on `/set-password` until they choose their own password. Clearing `must_change_password` marks the invitation accepted through a database trigger. **Revoke** stops a one-time password from working; **Resend** and **Reset password** issue a new one and invalidate the old.
 
 ### Auth routes
 
 - `/login` email and password
-- `/invite` invitation acceptance
-- `/register` invitation-only registration
+- `/set-password` forced first-password choice after a one-time password sign-in
+- `/invite` and `/register` legacy token-link acceptance (kept working; invitations now arrive as one-time passwords)
 - `/auth/callback` and `/auth/confirm` exchange the auth code and redirect to a safe internal path
 - `/auth/reset-password` (and `/reset-password`) complete recovery
 - `/account` profile, password, export, deletion
 - `/admin` invitations and user status (admins only)
+
+`/account` and `/admin` render inside the same navigation shell as the workspace, so the sidebar and the “Dashboard” breadcrumb are available from every signed-in page.
 
 ### Row Level Security
 
