@@ -5,6 +5,7 @@ export interface InvitationRecord {
   invitedBy: string
   expiresAt: string
   acceptedAt: string | null
+  revokedAt: string | null
   createdAt: string
 }
 
@@ -25,6 +26,7 @@ export const hashInviteToken = async (token: string) => {
 
 export const invitationState = (invite: InvitationRecord | null, now = Date.now()) => {
   if (!invite) return 'missing' as const
+  if (invite.revokedAt) return 'revoked' as const
   if (invite.acceptedAt) return 'used' as const
   if (new Date(invite.expiresAt).getTime() <= now) return 'expired' as const
   return 'valid' as const

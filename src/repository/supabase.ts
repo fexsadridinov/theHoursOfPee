@@ -6,7 +6,7 @@ let client: SupabaseClient | null = null
 export const getSupabase = () => {
   if (!supabaseUrl || !supabaseAnonKey) throw new Error('Remote mode is not configured.')
   client ??= createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, flowType: 'pkce' },
   })
   return client
 }

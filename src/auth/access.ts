@@ -1,5 +1,6 @@
 export type Role = 'admin' | 'member'
-export type AccountStatus = 'active' | 'suspended'
+export type AccountStatus = 'active' | 'suspended' | 'deleted'
+export type AuthStatus = 'loading' | 'unauthenticated' | 'authenticated' | 'suspended' | 'error'
 
 export interface Profile {
   id: string
@@ -31,7 +32,27 @@ export const ownershipUserId = (sessionUserId: string, attempted?: string) => {
 
 export type RouteDecision = 'public' | 'login' | 'confirm' | 'suspended' | 'forbidden' | 'app' | 'account' | 'admin'
 
-export const publicPaths = ['/login', '/invite', '/register', '/confirm-email', '/forgot-password', '/reset-password']
+export const publicPaths = [
+  '/login', '/invite', '/register', '/confirm-email', '/forgot-password', '/reset-password',
+  '/auth/callback', '/auth/confirm', '/auth/reset-password',
+]
+
+export const recoveryPaths = ['/reset-password', '/auth/reset-password']
+
+export const authStatusFrom = (
+  loading: boolean,
+  session: SessionState,
+  profile: Profile | null,
+  error: string | null,
+): AuthStatus => {
+  if (loading) return 'loading'
+  if (error) return 'error'
+  if (!session) return 'unauthenticated'
+  if (profile?.status === 'suspended' || profile?.status === 'deleted') return 'suspended'
+  if (session && profile?.status === 'active') return 'authenticated'
+  if (session && !profile) return 'loading'
+  return 'error'
+}
 
 export const decideRoute = (path: string, session: SessionState, profile: Profile | null, remote: boolean): RouteDecision => {
   const pathname = path.split('?')[0]

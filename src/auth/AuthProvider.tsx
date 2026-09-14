@@ -1,12 +1,15 @@
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import type { Profile, SessionState } from './access'
+import type { AuthStatus, Profile, SessionState } from './access'
+import { authStatusFrom, GENERIC_AUTH_ERROR } from './access'
 import { isRemoteConfigured } from '../config'
 import { getSupabase } from '../repository/supabase'
-import { GENERIC_AUTH_ERROR } from './access'
+import { authRedirectUrl } from './origin'
 
 interface AuthContextValue {
   remote: boolean
   loading: boolean
+  status: AuthStatus
+  errorMessage: string | null
   session: SessionState
   profile: Profile | null
   signIn: (email: string, password: string) => Promise<string | null>
@@ -29,36 +32,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(remote)
   const [session, setSession] = useState<SessionState>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
     if (!remote) return
     const supabase = getSupabase()
+    let cancelled = false
     const apply = async () => {
-      const { data: { session: next } } = await supabase.auth.getSession()
-      if (!next?.user) { setSession(null); setProfile(null); setLoading(false); return }
-      setSession({
-        userId: next.user.id,
-        email: next.user.email ?? '',
-        emailConfirmed: Boolean(next.user.email_confirmed_at ?? next.user.confirmed_at),
-      })
-      const { data } = await supabase.from('profiles').select('*').eq('id', next.user.id).maybeSingle()
-      setProfile(data ? mapProfile(data as Record<string, string>) : null)
-      setLoading(false)
+      try {
+        const { data: { session: next }, error: sessionError } = await supabase.auth.getSession()
+        if (cancelled) return
+        if (sessionError) {
+          setSession(null)
+          setProfile(null)
+          setErrorMessage('Your session expired. Please sign in again.')
+          setLoading(false)
+          return
+        }
+        if (!next?.user) {
+          setSession(null)
+          setProfile(null)
+          setErrorMessage(null)
+          setLoading(false)
+          return
+        }
+        setSession({
+          userId: next.user.id,
+          email: next.user.email ?? '',
+          emailConfirmed: Boolean(next.user.email_confirmed_at ?? next.user.confirmed_at),
+        })
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', next.user.id).maybeSingle()
+        if (cancelled) return
+        if (error) {
+          setErrorMessage('Your session expired. Please sign in again.')
+          setProfile(null)
+          setLoading(false)
+          return
+        }
+        setProfile(data ? mapProfile(data as Record<string, string>) : null)
+        setErrorMessage(null)
+        setLoading(false)
+      } catch {
+        if (cancelled) return
+        setErrorMessage('Unable to restore your session. Check your connection and try again.')
+        setLoading(false)
+      }
     }
     void apply()
     const { data } = supabase.auth.onAuthStateChange(() => { void apply() })
-    return () => data.subscription.unsubscribe()
+    return () => {
+      cancelled = true
+      data.subscription.unsubscribe()
+    }
   }, [remote])
 
+  const status = authStatusFrom(loading, session, profile, errorMessage)
+
   const value = useMemo<AuthContextValue>(() => ({
-    remote, loading, session, profile,
+    remote, loading, status, errorMessage, session, profile,
     signIn: async (email, password) => {
       const { error } = await getSupabase().auth.signInWithPassword({ email, password })
       return error ? GENERIC_AUTH_ERROR : null
     },
     signOut: async () => { await getSupabase().auth.signOut() },
     requestReset: async (email) => {
-      const { error } = await getSupabase().auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` })
+      const { error } = await getSupabase().auth.resetPasswordForEmail(email, {
+        redirectTo: authRedirectUrl('/auth/callback?next=/auth/reset-password'),
+      })
       return error ? GENERIC_AUTH_ERROR : null
     },
     updatePassword: async (password) => {
@@ -75,7 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await getSupabase().auth.signOut()
       return error ? GENERIC_AUTH_ERROR : null
     },
-  }), [remote, loading, session, profile])
+  }), [remote, loading, status, errorMessage, session, profile])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

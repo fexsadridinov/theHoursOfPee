@@ -1,6 +1,8 @@
+import { getAppOrigin } from './auth/origin'
+
 export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? ''
 export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? ''
-export const appUrl = import.meta.env.VITE_APP_URL ?? (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173')
+export const appUrl = getAppOrigin()
 export const inviteExpirationHours = Number(import.meta.env.VITE_INVITE_EXPIRATION_HOURS ?? 72)
 
 export const isRemoteConfigured = () => Boolean(supabaseUrl && supabaseAnonKey)

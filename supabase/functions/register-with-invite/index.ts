@@ -11,9 +11,13 @@ Deno.serve(async (req) => {
     const token_hash = await hashToken(token)
     const admin = serviceClient()
     const { data: invite } = await admin.from('invitations').select('*').eq('token_hash', token_hash).maybeSingle()
-    if (!invite || invite.email !== normalized || invite.accepted_at || new Date(invite.expires_at).getTime() <= Date.now()) {
+    if (!invite || invite.email !== normalized || invite.accepted_at || invite.revoked_at) {
       return generic()
     }
+    if (new Date(invite.expires_at).getTime() <= Date.now()) {
+      return json({ ok: false, reason: 'expired', message: 'This invitation has expired. Ask an administrator for a new invitation.' }, 400)
+    }
+    const appUrl = (Deno.env.get('APP_URL') ?? '').replace(/\/$/, '')
     const { data, error } = await admin.auth.admin.createUser({
       email: normalized,
       password,
@@ -24,6 +28,13 @@ Deno.serve(async (req) => {
     await admin.from('profiles').update({ display_name: displayName ?? '' }).eq('id', data.user.id)
     await admin.from('invitations').update({ accepted_at: new Date().toISOString() }).eq('id', invite.id)
     await admin.from('audit_logs').insert({ actor_id: data.user.id, event: 'invitation_accepted', target_email: normalized })
+    if (appUrl) {
+      await admin.auth.admin.generateLink({
+        type: 'signup',
+        email: normalized,
+        options: { redirectTo: `${appUrl}/auth/callback` },
+      })
+    }
     return json({ ok: true, message: 'Check your email to confirm the account, then sign in.' })
   } catch {
     return generic(500)

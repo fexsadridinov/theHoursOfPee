@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canUseApp, decideRoute, isAdmin, isSuspended, ownershipUserId } from './access'
+import { authStatusFrom, canUseApp, decideRoute, isAdmin, isSuspended, ownershipUserId } from './access'
 import { canAcceptInvitation, expiresAtFrom, generateInviteToken, hashInviteToken, invitationState, isRateLimited, markAccepted, type InvitationRecord } from './invitations'
 
 const profile = (overrides = {}) => ({
@@ -11,6 +11,8 @@ describe('route access', () => {
   it('sends anonymous remote users to login', () => {
     expect(decideRoute('/', null, null, true)).toBe('login')
     expect(decideRoute('/login', null, null, true)).toBe('public')
+    expect(decideRoute('/auth/callback', null, null, true)).toBe('public')
+    expect(decideRoute('/auth/reset-password', null, null, true)).toBe('public')
   })
   it('allows the local app without a session', () => {
     expect(decideRoute('/', null, null, false)).toBe('app')
@@ -30,16 +32,28 @@ describe('route access', () => {
     expect(() => ownershipUserId('user-a', 'user-b')).toThrow('Ownership violation')
     expect(ownershipUserId('user-a')).toBe('user-a')
   })
+  it('exposes explicit auth states', () => {
+    expect(authStatusFrom(true, null, null, null)).toBe('loading')
+    expect(authStatusFrom(false, null, null, null)).toBe('unauthenticated')
+    expect(authStatusFrom(false, { userId: 'a', email: 'a@example.com', emailConfirmed: true }, profile(), null)).toBe('authenticated')
+    expect(authStatusFrom(false, { userId: 'a', email: 'a@example.com', emailConfirmed: true }, profile({ status: 'suspended' }), null)).toBe('suspended')
+    expect(authStatusFrom(false, null, null, 'fail')).toBe('error')
+  })
 })
 
 describe('invitations', () => {
   const invite = (overrides: Partial<InvitationRecord> = {}): InvitationRecord => ({
     id: '1', email: 'new@example.com', tokenHash: 'abc', invitedBy: 'admin',
-    expiresAt: expiresAtFrom(72), acceptedAt: null, createdAt: new Date().toISOString(), ...overrides,
+    expiresAt: expiresAtFrom(72), acceptedAt: null, revokedAt: null, createdAt: new Date().toISOString(), ...overrides,
   })
 
   it('expires after the deadline', () => {
     expect(invitationState(invite({ expiresAt: new Date(Date.now() - 1000).toISOString() }))).toBe('expired')
+  })
+
+  it('rejects revoked invitations', () => {
+    expect(invitationState(invite({ revokedAt: new Date().toISOString() }))).toBe('revoked')
+    expect(canAcceptInvitation(invite({ revokedAt: new Date().toISOString() }), 'new@example.com', 'abc').ok).toBe(false)
   })
 
   it('can be used only once', () => {

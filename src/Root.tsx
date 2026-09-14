@@ -1,7 +1,7 @@
 import App from './App'
 import { decideRoute } from './auth/access'
 import { AuthProvider, navigate, useAuth, usePath } from './auth/AuthProvider'
-import { AccountPage, AdminPage, ConfirmEmailPage, ForgotPasswordPage, InvitePage, LoginPage, RegisterPage, ResetPasswordPage, SuspendedPage } from './auth/pages'
+import { AccountPage, AdminPage, AuthCallbackPage, AuthErrorPage, ConfirmEmailPage, ForgotPasswordPage, InvitePage, LoginPage, RegisterPage, ResetPasswordPage, SuspendedPage } from './auth/pages'
 import { useWorkspace, WorkspaceProvider } from './workspace/WorkspaceProvider'
 import { entityCounts } from './migration'
 
@@ -10,9 +10,9 @@ function SaveBanner() {
   if (kind === 'local') return null
   if (status === 'saved') return <div className="sync-banner saved">Online and saved</div>
   if (status === 'saving') return <div className="sync-banner">Saving…</div>
-  if (status === 'offline') return <div className="sync-banner warn">Offline — edits unavailable until you reconnect</div>
-  if (status === 'expired') return <div className="sync-banner warn">Session expired. <button className="text-button" onClick={() => navigate('/login')}>Sign in</button></div>
-  return <div className="sync-banner warn">Save failed. <button className="text-button" onClick={retry}>Retry</button></div>
+  if (status === 'offline') return <div className="sync-banner warn">Your changes could not be saved. Check your connection and try again.</div>
+  if (status === 'expired') return <div className="sync-banner warn">Your session expired. Please sign in again. <button className="text-button" onClick={() => navigate('/login')}>Sign in</button></div>
+  return <div className="sync-banner warn">Your changes could not be saved. Check your connection and try again. <button className="text-button" onClick={retry}>Retry</button></div>
 }
 
 function MigrationModal() {
@@ -49,9 +49,11 @@ function Shell() {
 
 function Gate() {
   const path = usePath()
-  const { remote, loading, session, profile } = useAuth()
-  if (loading) return <div className="auth-screen"><div className="auth-card"><p>Restoring your session…</p></div></div>
+  const { remote, loading, status, session, profile } = useAuth()
+  if (loading || status === 'loading') return <div className="auth-screen"><div className="auth-card"><p>Restoring your session…</p></div></div>
+  if (status === 'error') return <AuthErrorPage />
   const pathname = path.split('?')[0]
+  if (pathname === '/auth/callback' || pathname === '/auth/confirm') return <AuthCallbackPage />
   const decision = decideRoute(path, session, profile, remote)
   if (decision === 'login') return <LoginPage />
   if (decision === 'public') {
@@ -59,12 +61,12 @@ function Gate() {
     if (pathname === '/register') return <RegisterPage />
     if (pathname === '/confirm-email') return <ConfirmEmailPage />
     if (pathname === '/forgot-password') return <ForgotPasswordPage />
-    if (pathname === '/reset-password') return <ResetPasswordPage />
+    if (pathname === '/reset-password' || pathname === '/auth/reset-password') return <ResetPasswordPage />
     return <LoginPage />
   }
   if (decision === 'confirm') return <ConfirmEmailPage />
-  if (decision === 'suspended') return <SuspendedPage />
-  if (decision === 'forbidden') return <div className="auth-screen"><div className="auth-card"><h1>Not allowed</h1><p>This area is for administrators.</p><button className="primary" onClick={() => navigate('/')}>Back</button></div></div>
+  if (decision === 'suspended' || status === 'suspended') return <SuspendedPage />
+  if (decision === 'forbidden') return <div className="auth-screen"><div className="auth-card"><h1>Not allowed</h1><p>You do not have permission to access this page.</p><button className="primary" onClick={() => navigate('/')}>Back</button></div></div>
   return <WorkspaceProvider>
     {decision === 'admin' ? <><SaveBanner /><AdminPage /></> : decision === 'account' ? <><SaveBanner /><AccountPage /></> : <Shell />}
   </WorkspaceProvider>

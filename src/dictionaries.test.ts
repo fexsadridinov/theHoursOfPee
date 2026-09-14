@@ -12,7 +12,7 @@ import {
   selectableItems,
   setItemActive,
 } from './dictionaries'
-import { isValidBackup, migrate, seedData, toCsv } from './data'
+import { isValidBackup, migrate, seedData, toCsv, exportJson } from './data'
 import { completedMinutes, sumMinutes } from './calculations'
 
 describe('dictionary helpers', () => {
@@ -106,5 +106,14 @@ describe('schema migration', () => {
     expect(csv).toContain('Fall 2026')
     expect(csv).toContain('client-facing')
     expect(csv).toContain('90')
+  })
+
+  it('redacts client labels in JSON and CSV exports', () => {
+    const csv = toCsv(seedData, seedData.activities.filter(item => item.id === 'a1'), { redactClients: true })
+    expect(csv).toContain('REDACTED')
+    expect(csv).not.toContain('Client 014')
+    const json = exportJson(seedData, { redactClients: true })
+    expect(json).toContain('REDACTED')
+    expect(json).not.toContain('Client 014')
   })
 })
