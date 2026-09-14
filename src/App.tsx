@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity as ActivityIcon, CalendarDays, Check, ChevronLeft, ChevronRight,
-  Clock3, Database, Download, FileBarChart, LayoutDashboard, LogOut, Menu, MoreHorizontal,
-  Plus, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Upload, UserCircle, Users, X,
+  Briefcase, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Database,
+  Download, FileBarChart, LayoutDashboard, LogOut, Menu, MoreHorizontal, Plus,
+  Settings, ShieldCheck, Sparkles, Trash2, Upload, UserCircle, Users, X,
 } from 'lucide-react'
 import {
-  categoryMinutes, formatHours, groupMinutes, hoursFromMinutes,
+  categoryMinutes, formatHours, formatHoursFixed, hoursFromMinutes,
   inDateRange, minutesFromHours, parseHours, sumMinutes, totalMinutes,
 } from './calculations'
 import { download, exportJson, isValidBackup, migrate, resetData, toCsv } from './data'
@@ -14,41 +14,46 @@ import { AccountPage, AdminPage } from './auth/pages'
 import { countLabels, entityCounts } from './migration'
 import { useWorkspace } from './workspace/WorkspaceProvider'
 import {
-  activeItems, canRemoveActivityType, canRemoveDictionaryItem, dictionaryMeta, dictionaryUsage,
-  findOrCreateNamed, itemName, removeItem, renameItem, setItemActive,
+  activeItems, canRemoveDictionaryItem, canRemovePlacement, dictionaryUsage,
+  emptyPlacement, findOrCreateNamed, firstKindId, itemName, kindsFor,
+  placementName, placementOf, removeItem, renameItem, resolveKindId, setItemActive,
 } from './dictionaries'
-import type { Activity, ActivityCategory, ActivityType, AppData, DictionaryItem, DictionaryKey } from './types'
+import type { Activity, ActivityCategory, AppData, DictionaryItem, Placement } from './types'
 
-type Page = 'dashboard' | 'calendar' | 'activities' | 'reports' | 'settings'
+type Page = 'dashboard' | 'calendar' | 'placements' | 'reports' | 'settings'
 export type Section = 'admin' | 'account'
 
 const today = () => new Date().toLocaleDateString('en-CA')
 const uid = () => crypto.randomUUID()
 const dateLabel = (date: string, options: Intl.DateTimeFormatOptions = {}) => new Date(`${date}T12:00:00`).toLocaleDateString('en-GB', options)
+const longDate = (date: string) => dateLabel(date, { day: 'numeric', month: 'long', year: 'numeric' })
 const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 const startOfWeek = (date: Date) => { const copy = new Date(date); const day = (copy.getDay() + 6) % 7; copy.setDate(copy.getDate() - day); return copy }
 const iso = (date: Date) => date.toLocaleDateString('en-CA')
-const typeOf = (data: AppData, id: string) => data.activityTypes.find(type => type.id === id)
+const typeOf = (data: AppData, id: string) => data.activityTypes.find(type => type.id === resolveKindId(id, data.activityTypes))
 const typeName = (data: AppData, id: string) => typeOf(data, id)?.name ?? 'Activity'
+const typeCategory = (data: AppData, id: string) => typeOf(data, id)?.category ?? 'indirect'
 const shiftDate = (date: string, days: number) => {
   const next = new Date(`${date || today()}T12:00:00`)
   next.setDate(next.getDate() + days)
   return iso(next)
 }
+const rangeLabel = (start: string, end: string) => {
+  if (!start && !end) return ''
+  return `${start ? dateLabel(start, { day: '2-digit', month: 'short', year: 'numeric' }) : 'Start'} — ${end ? dateLabel(end, { day: '2-digit', month: 'short', year: 'numeric' }) : 'present'}`
+}
 
 const emptyActivity = (data: AppData, date = today()): Activity => {
-  const type = data.activityTypes.find(item => item.active && item.category === 'direct')
-    ?? data.activityTypes.find(item => item.active)
-    ?? data.activityTypes[0]
+  const placement = data.placements.find(item => item.active) ?? data.placements[0]
+  const typeId = firstKindId('direct')
   return {
-    id: '', date, durationMinutes: type?.defaultMinutes ?? 60, activityTypeId: type?.id ?? '',
-    supervisorId: '', notes: '', createdAt: '', updatedAt: '',
+    id: '', date, durationMinutes: 60, activityTypeId: typeId,
+    placementId: placement?.id ?? '', supervisorId: placement?.supervisorId ?? '', notes: '', createdAt: '', updatedAt: '',
   }
 }
 
 function SaveBanner() {
   const { status, retry, kind, lastError } = useWorkspace()
-  // "Saved" is reassurance, not a permanent state, so it fades out instead of holding a bar on every page.
   const [showSaved, setShowSaved] = useState(false)
   useEffect(() => {
     if (status !== 'saved') return
@@ -88,6 +93,7 @@ function App({ section }: { section?: Section }) {
   const [page, setPage] = useState<Page>('dashboard')
   const [navOpen, setNavOpen] = useState(false)
   const [editing, setEditing] = useState<Activity | null>(null)
+  const [reportPlacement, setReportPlacement] = useState('all')
   const [toast, setToast] = useState('')
 
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(''), 2600); return () => clearTimeout(id) }, [toast])
@@ -95,9 +101,11 @@ function App({ section }: { section?: Section }) {
   const openNew = (date?: string) => setEditing(emptyActivity(data, date))
   const saveActivity = async (activity: Activity) => {
     const now = new Date().toISOString()
+    const placement = placementOf(data.placements, activity.placementId)
+    const nextActivity = { ...activity, supervisorId: activity.supervisorId || placement?.supervisorId || '' }
     const next: AppData = { ...data, activities: activity.id
-      ? data.activities.map(item => item.id === activity.id ? { ...activity, updatedAt: now } : item)
-      : [{ ...activity, id: uid(), createdAt: now, updatedAt: now }, ...data.activities],
+      ? data.activities.map(item => item.id === activity.id ? { ...nextActivity, updatedAt: now } : item)
+      : [{ ...nextActivity, id: uid(), createdAt: now, updatedAt: now }, ...data.activities],
     }
     const error = await commit(next)
     if (error) return error
@@ -114,12 +122,13 @@ function App({ section }: { section?: Section }) {
 
   const nav = [
     ['dashboard', LayoutDashboard, 'Overview'], ['calendar', CalendarDays, 'Calendar'],
-    ['activities', Clock3, 'Hours'], ['reports', FileBarChart, 'Reports'], ['settings', Settings, 'Settings'],
+    ['placements', Briefcase, 'Placement'], ['reports', FileBarChart, 'Reports'], ['settings', Settings, 'Settings'],
   ] as const
 
   const goDashboard = () => { setPage('dashboard'); setNavOpen(false); if (section) navigate('/') }
   const openPage = (next: Page) => { setPage(next); setNavOpen(false); if (section) navigate('/') }
   const openSection = (path: string) => { setNavOpen(false); navigate(path) }
+  const goReports = (placementId = 'all') => { setReportPlacement(placementId); openPage('reports') }
   const currentLabel = section === 'admin' ? 'Users & invitations'
     : section === 'account' ? 'Account & security'
     : nav.find(([id]) => id === page)?.[2] ?? 'Overview'
@@ -157,13 +166,13 @@ function App({ section }: { section?: Section }) {
       {section === 'admin' ? <AdminPage/> : section === 'account' ? <AccountPage/> : <>
         {page === 'dashboard' && <Dashboard data={data} openNew={openNew} edit={setEditing} go={setPage}/>}
         {page === 'calendar' && <Calendar data={data} openNew={openNew} edit={setEditing}/>}
-        {page === 'activities' && <Activities data={data} setData={setData} edit={setEditing} openNew={openNew} notify={setToast}/>}
-        {page === 'reports' && <Reports data={data}/>}
+        {page === 'placements' && <Placements data={data} setData={setData} edit={setEditing} openNew={openNew} notify={setToast} goReports={goReports}/>}
+        {page === 'reports' && <Reports data={data} generatedFor={profile?.displayName || profile?.email || 'Trainee'} placementId={reportPlacement} setPlacementId={setReportPlacement}/>}
         {page === 'settings' && <SettingsPage data={data} setData={setData} notify={setToast}/>}
       </>}
     </main>
     <MigrationModal />
-    {editing && <ActivityDialog activity={editing} data={data} setData={setData} close={() => setEditing(null)} save={saveActivity} remove={removeActivity} openSettings={() => { setEditing(null); openPage('settings') }}/>}
+    {editing && <ActivityDialog activity={editing} data={data} close={() => setEditing(null)} save={saveActivity} remove={removeActivity} openPlacements={() => { setEditing(null); openPage('placements') }}/>}
     {toast && <div className="toast" role="status"><Check size={17}/>{toast}</div>}
   </div>
 }
@@ -190,7 +199,6 @@ function Dashboard({ data, openNew, edit, go }: { data: AppData, openNew: () => 
   const directShare = total ? (byCategory.direct ?? 0) / total * 100 : 0
 
   return <section className="page">
-    {/* The log button lives in the topbar on every page, so page headings never repeat it. */}
     <PageHeading kicker="Your progress" title="Your hours at a glance." copy="A calm view of the time you have logged."/>
     <div className="metric-grid">
       <Metric label="Today" value={formatHours(todayMinutes)} hint={dateLabel(today(), { day: 'numeric', month: 'long' })} tone="sage"/>
@@ -216,7 +224,7 @@ function Dashboard({ data, openNew, edit, go }: { data: AppData, openNew: () => 
         </div>
       </article>
       <article className="panel full recent-panel">
-        <div className="panel-head"><div><span className="kicker">LATEST</span><h2>Recent entries</h2></div><button className="text-button" onClick={() => go('activities')}>View all <ChevronRight size={16}/></button></div>
+        <div className="panel-head"><div><span className="kicker">LATEST</span><h2>Recent entries</h2></div><button className="text-button" onClick={() => go('placements')}>View placements <ChevronRight size={16}/></button></div>
         {recent.length
           ? <ActivityRows activities={recent} data={data} edit={edit}/>
           : <div className="empty"><Clock3 size={28}/><strong>No hours logged yet</strong><span>Add your first entry and it will show up here.</span><button className="primary" onClick={openNew}><Plus size={17}/> Log hours</button></div>}
@@ -234,7 +242,7 @@ function Calendar({ data, openNew, edit }: { data: AppData, openNew: (date?: str
   const [selected, setSelected] = useState(today())
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
   const gridStart = startOfWeek(first)
-  const days = Array.from({ length: 42 }, (_, index) => { const day = new Date(gridStart); day.setDate(day.getDate() + index); return day })
+  const days = Array.from({ length: 42 }, (_, index) => { const day = new Date(gridStart); day.setDate(gridStart.getDate() + index); return day })
   const selectedItems = data.activities.filter(a => a.date === selected).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const selectedDate = new Date(`${selected}T12:00:00`)
   const selectedWeek = startOfWeek(selectedDate)
@@ -273,92 +281,305 @@ function Calendar({ data, openNew, edit }: { data: AppData, openNew: (date?: str
   </section>
 }
 
-function Activities({ data, setData, edit, openNew, notify }: { data: AppData, setData: React.Dispatch<React.SetStateAction<AppData>>, edit: (a: Activity) => void, openNew: () => void, notify: (message: string) => void }) {
-  const [query, setQuery] = useState('')
-  const [typeFilter, setTypeFilter] = useState('all')
-  const [selected, setSelected] = useState<string[]>([])
-  const visible = useMemo(() => data.activities.filter(a => {
-    const haystack = `${typeName(data, a.activityTypeId)} ${itemName(data.dictionaries.supervisors, a.supervisorId)} ${a.notes} ${a.date}`
-    return (typeFilter === 'all' || a.activityTypeId === typeFilter) && haystack.toLowerCase().includes(query.toLowerCase())
-  }).sort((a, b) => b.date.localeCompare(a.date)), [data, query, typeFilter])
-  const bulkDelete = () => {
-    if (!confirm(`Delete ${selected.length} selected ${selected.length === 1 ? 'entry' : 'entries'}?`)) return
-    setData(current => ({ ...current, activities: current.activities.filter(a => !selected.includes(a.id)) }))
-    setSelected([]); notify('Entries deleted')
+function Placements({ data, setData, edit, openNew, notify, goReports }: {
+  data: AppData, setData: React.Dispatch<React.SetStateAction<AppData>>,
+  edit: (a: Activity) => void, openNew: () => void, notify: (message: string) => void,
+  goReports: (placementId?: string) => void,
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<Placement | null>(null)
+  const selected = data.placements.find(item => item.id === selectedId)
+  const hoursFor = (id: string) => data.activities.filter(item => item.placementId === id)
+
+  const savePlacement = (placement: Placement) => {
+    const next = placement.id
+      ? data.placements.map(item => item.id === placement.id ? placement : item)
+      : [...data.placements, { ...placement, id: uid() }]
+    setData({ ...data, placements: next })
+    setDraft(null)
+    notify(placement.id ? 'Placement updated' : 'Placement added')
   }
-  return <section className="page">
-    <PageHeading kicker="Your records" title="Hours" copy={`${visible.length} ${visible.length === 1 ? 'entry' : 'entries'} · ${formatHours(sumMinutes(visible))} shown`}/>
-    <article className="panel table-panel">
-      <div className="filterbar">
-        <label className="search"><Search size={18}/><input aria-label="Search hours" placeholder="Search notes, type, supervisor…" value={query} onChange={e => setQuery(e.target.value)}/></label>
-        <label className="select-wrap"><SlidersHorizontal size={17}/><select aria-label="Filter by activity type" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="all">All activity types</option>{data.activityTypes.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
-        <button className="secondary" onClick={() => download('hours-of-pee-hours.csv', toCsv(data, visible), 'text/csv')}><Download size={17}/> Export</button>
+
+  if (selected) {
+    const rows = hoursFor(selected.id).sort((a, b) => b.date.localeCompare(a.date))
+    const split = categoryMinutes(rows, data.activityTypes)
+    return <section className="page">
+      <PageHeading
+        kicker="Job / site"
+        title={selected.name}
+        copy={[selected.site, itemName(data.dictionaries.supervisors, selected.supervisorId), rangeLabel(selected.startDate, selected.endDate)].filter(Boolean).join(' · ') || 'Hours logged against this placement.'}
+        action={<div className="button-row">
+          <button className="secondary" onClick={() => setSelectedId(null)}><ChevronLeft size={16}/> All placements</button>
+          <button className="secondary" onClick={() => goReports(selected.id)}><FileBarChart size={17}/> Report</button>
+          <button className="secondary" onClick={() => download(`hours-${selected.name.replace(/\s+/g, '-').toLowerCase()}.csv`, toCsv(data, rows), 'text/csv')}><Download size={17}/> CSV</button>
+          <button className="primary compact" onClick={() => setDraft(selected)}>Edit</button>
+        </div>}
+      />
+      <div className="metric-grid placement-metrics">
+        <Metric label="Direct" value={formatHours(split.direct ?? 0)} hint="Time with clients" tone="sage"/>
+        <Metric label="Indirect" value={formatHours(split.indirect ?? 0)} hint="Everything else" tone="clay"/>
+        <Metric label="Total" value={formatHours(sumMinutes(rows))} hint={`${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}`} tone="gold"/>
       </div>
-      {selected.length > 0 && <div className="bulkbar"><strong>{selected.length} selected</strong><button className="danger-text" onClick={bulkDelete}><Trash2 size={16}/> Delete</button></div>}
-      <div className="table-scroll"><table>
-        <thead><tr><th><input type="checkbox" aria-label="Select all" checked={visible.length > 0 && visible.every(a => selected.includes(a.id))} onChange={e => setSelected(e.target.checked ? visible.map(a => a.id) : [])}/></th><th>Date</th><th>Activity type</th><th>Supervisor</th><th>Hours</th><th>Notes</th><th/></tr></thead>
-        <tbody>{visible.map(a => <tr key={a.id}>
-          <td><input type="checkbox" aria-label={`Select entry on ${a.date}`} checked={selected.includes(a.id)} onChange={e => setSelected(current => e.target.checked ? [...current, a.id] : current.filter(id => id !== a.id))}/></td>
-          <td><strong>{dateLabel(a.date, { day: '2-digit', month: 'short', year: 'numeric' })}</strong></td>
-          <td><span className="type-cell"><i style={{ background: typeOf(data, a.activityTypeId)?.color }}/>{typeName(data, a.activityTypeId)}</span></td>
-          <td>{itemName(data.dictionaries.supervisors, a.supervisorId, '—')}</td>
-          <td><strong>{formatHours(a.durationMinutes)}</strong></td>
-          <td className="notes-cell">{a.notes || '—'}</td>
-          <td><button className="icon-button" aria-label={`Edit entry on ${a.date}`} onClick={() => edit(a)}><MoreHorizontal size={19}/></button></td>
-        </tr>)}</tbody>
-      </table></div>
-      {!visible.length && <div className="empty"><Search size={30}/><strong>Nothing to show</strong><span>{data.activities.length ? 'Try changing the search or filter.' : 'Log your first hours to see them here.'}</span>{!data.activities.length && <button className="primary" onClick={openNew}><Plus size={17}/> Log hours</button>}</div>}
-    </article>
+      <article className="panel table-panel">
+        <div className="filterbar"><strong className="table-title">Hours at this site</strong></div>
+        <HoursTable activities={rows} data={data} edit={edit}/>
+        {!rows.length && <div className="empty"><Clock3 size={30}/><strong>No hours here yet</strong><span>Log time against this placement to separate it from your other jobs.</span><button className="primary" onClick={openNew}><Plus size={17}/> Log hours</button></div>}
+      </article>
+      {draft && <PlacementDialog placement={draft} data={data} setData={setData} close={() => setDraft(null)} save={savePlacement}/>}
+    </section>
+  }
+
+  return <section className="page">
+    <PageHeading kicker="Jobs & sites" title="Placement" copy="Separate hours by the job or site they belong to, then export a report for each one." action={<button className="primary compact" onClick={() => setDraft(emptyPlacement())}><Plus size={17}/> Add placement</button>}/>
+    {data.placements.length
+      ? <div className="placement-grid">{data.placements.map(placement => {
+        const rows = hoursFor(placement.id)
+        const split = categoryMinutes(rows, data.activityTypes)
+        return <article className={`panel placement-card ${placement.active ? '' : 'inactive'}`} key={placement.id}>
+          <div className="placement-card-head">
+            <div><span className="kicker">{placement.active ? 'ACTIVE' : 'HIDDEN'}</span><h2>{placement.name}</h2></div>
+            <button className="icon-button" aria-label={`Edit ${placement.name}`} onClick={() => setDraft(placement)}><MoreHorizontal size={19}/></button>
+          </div>
+          <p>{[placement.site, itemName(data.dictionaries.supervisors, placement.supervisorId), rangeLabel(placement.startDate, placement.endDate)].filter(Boolean).join(' · ') || 'No site details yet.'}</p>
+          <div className="placement-hours">
+            <div><span>Direct</span><strong>{formatHoursFixed(split.direct ?? 0)}</strong></div>
+            <div><span>Indirect</span><strong>{formatHoursFixed(split.indirect ?? 0)}</strong></div>
+            <div><span>Total</span><strong>{formatHoursFixed(sumMinutes(rows))}</strong></div>
+          </div>
+          <div className="button-row">
+            <button className="primary compact" onClick={() => setSelectedId(placement.id)}>View hours</button>
+            <button className="secondary compact" onClick={() => goReports(placement.id)}>Export report</button>
+          </div>
+        </article>
+      })}</div>
+      : <article className="panel"><div className="empty"><Briefcase size={30}/><strong>No placements yet</strong><span>Add each job or site so you can sort and export hours separately.</span><button className="primary" onClick={() => setDraft(emptyPlacement())}><Plus size={17}/> Add placement</button></div></article>}
+    <SupervisorManager data={data} setData={setData} notify={notify}/>
+    {draft && <PlacementDialog placement={draft} data={data} setData={setData} close={() => setDraft(null)} save={savePlacement} remove={placement => {
+      if (!canRemovePlacement(data, placement.id)) { notify('Move or delete the hours on this placement first.'); return }
+      if (!confirm('Remove this placement?')) return
+      setData(current => ({ ...current, placements: current.placements.filter(item => item.id !== placement.id) }))
+      setDraft(null); notify('Placement removed')
+    }}/>}
   </section>
+}
+
+function HoursTable({ activities, data, edit }: { activities: Activity[], data: AppData, edit: (a: Activity) => void }) {
+  if (!activities.length) return null
+  return <div className="table-scroll"><table>
+    <thead><tr><th>Date</th><th>Activity</th><th>Hours</th><th>Notes</th><th/></tr></thead>
+    <tbody>{activities.map(a => <tr key={a.id}>
+      <td><strong>{dateLabel(a.date, { day: '2-digit', month: 'short', year: 'numeric' })}</strong></td>
+      <td><span className="type-cell"><i style={{ background: typeOf(data, a.activityTypeId)?.color }}/><span>{typeName(data, a.activityTypeId)}<small>{typeCategory(data, a.activityTypeId) === 'direct' ? 'Direct' : 'Indirect'}</small></span></span></td>
+      <td><strong>{formatHours(a.durationMinutes)}</strong></td>
+      <td className="notes-cell">{a.notes || '—'}</td>
+      <td><button className="icon-button" aria-label={`Edit entry on ${a.date}`} onClick={() => edit(a)}><MoreHorizontal size={19}/></button></td>
+    </tr>)}</tbody>
+  </table></div>
+}
+
+function PlacementDialog({ placement, data, setData, close, save, remove }: {
+  placement: Placement, data: AppData, setData: React.Dispatch<React.SetStateAction<AppData>>,
+  close: () => void, save: (placement: Placement) => void, remove?: (placement: Placement) => void,
+}) {
+  const [name, setName] = useState(placement.name)
+  const [site, setSite] = useState(placement.site)
+  const [supervisorId, setSupervisorId] = useState(placement.supervisorId)
+  const [startDate, setStartDate] = useState(placement.startDate)
+  const [endDate, setEndDate] = useState(placement.endDate)
+  const [active, setActive] = useState(placement.active)
+  const [error, setError] = useState('')
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!name.trim()) { setError('Give this placement a name, for example the job or course title.'); return }
+    save({ ...placement, name: name.trim(), site: site.trim(), supervisorId, startDate, endDate, active })
+  }
+
+  return <div className="modal-layer" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) close() }}>
+    <form className="modal" onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="placement-title">
+      <div className="modal-head">
+        <div><span className="kicker">{placement.id ? 'EDIT PLACEMENT' : 'NEW PLACEMENT'}</span><h2 id="placement-title">{placement.id ? 'Edit placement' : 'Add a placement'}</h2></div>
+        <button type="button" className="icon-button" aria-label="Close" onClick={close}><X/></button>
+      </div>
+      <div className="form-grid">
+        <label className="full">Placement name<input value={name} onChange={e => { setName(e.target.value); setError('') }} placeholder="e.g. 2025–2026 Practicum"/></label>
+        <label className="full">Job / site<input value={site} onChange={e => setSite(e.target.value)} placeholder="e.g. Riverbank Psychotherapy"/></label>
+        <div className="field full"><span id="placement-supervisor">Supervisor</span>
+          <SupervisorSelect labelledBy="placement-supervisor" items={data.dictionaries.supervisors} value={supervisorId} onChange={setSupervisorId} onCreate={name => {
+            const next = findOrCreateNamed(data.dictionaries.supervisors, name)
+            setData(current => ({ ...current, dictionaries: { ...current.dictionaries, supervisors: next.items } }))
+            setSupervisorId(next.id)
+          }}/>
+        </div>
+        <label>Start date<input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}/></label>
+        <label>End date<input type="date" value={endDate} min={startDate || undefined} onChange={e => setEndDate(e.target.value)}/></label>
+        <label className="full checkbox-row"><input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)}/> Show this placement when logging hours</label>
+      </div>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <div className="modal-actions">
+        {placement.id && remove && <button type="button" className="danger-text" onClick={() => remove(placement)}><Trash2 size={17}/> Delete</button>}
+        <span/>
+        <button type="button" className="secondary" onClick={close}>Cancel</button>
+        <button className="primary" type="submit">{placement.id ? 'Save placement' : 'Add placement'}</button>
+      </div>
+    </form>
+  </div>
+}
+
+function SupervisorManager({ data, setData, notify }: { data: AppData, setData: React.Dispatch<React.SetStateAction<AppData>>, notify: (message: string) => void }) {
+  const [newName, setNewName] = useState('')
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const items = data.dictionaries.supervisors
+  const setItems = (next: (items: DictionaryItem[]) => DictionaryItem[]) =>
+    setData(current => ({ ...current, dictionaries: { ...current.dictionaries, supervisors: next(current.dictionaries.supervisors) } }))
+
+  const add = (event: React.FormEvent) => {
+    event.preventDefault()
+    const trimmed = newName.trim()
+    if (!trimmed) return
+    if (items.some(item => item.name.toLowerCase() === trimmed.toLowerCase())) { notify('That supervisor already exists'); return }
+    setItems(list => findOrCreateNamed(list, trimmed).items)
+    setNewName(''); notify('Supervisor added')
+  }
+
+  const remove = (id: string) => {
+    if (!canRemoveDictionaryItem(data, 'supervisors', id)) return
+    if (!confirm('Remove this supervisor?')) return
+    setItems(list => removeItem(list, id))
+    notify('Supervisor removed')
+  }
+
+  return <article className="panel settings-card dictionary-card supervisor-panel">
+    <div className="settings-icon"><Users/></div>
+    <h2>Supervisors</h2>
+    <p>Add supervisors here, then attach them to a placement. They are not added while logging hours.</p>
+    <div className="dict-list">
+      {items.map(item => {
+        const used = dictionaryUsage(data, 'supervisors', item.id)
+        return <div className={`dict-row ${item.active ? '' : 'inactive'}`} key={item.id}>
+          <input aria-label={`Name for ${item.name}`} value={drafts[item.id] ?? item.name} onChange={e => setDrafts(current => ({ ...current, [item.id]: e.target.value }))} onBlur={e => {
+            const trimmed = e.target.value.trim()
+            if (trimmed) setItems(list => renameItem(list, item.id, trimmed))
+            setDrafts(current => { const next = { ...current }; delete next[item.id]; return next })
+          }} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}/>
+          <small>{used ? `${used} in use` : 'Unused'}</small>
+          <button type="button" className="secondary compact" onClick={() => setItems(list => setItemActive(list, item.id, !item.active))}>{item.active ? 'Hide' : 'Show'}</button>
+          <button type="button" className="icon-button" aria-label={`Remove ${item.name}`} disabled={!canRemoveDictionaryItem(data, 'supervisors', item.id)} onClick={() => remove(item.id)}><Trash2 size={16}/></button>
+        </div>
+      })}
+      {!items.length && <div className="empty-mini">No supervisors yet. Add one and attach it to a placement.</div>}
+    </div>
+    <form className="dict-add" onSubmit={add}>
+      <input aria-label="Add supervisor" placeholder="Add supervisor" value={newName} onChange={e => setNewName(e.target.value)}/>
+      <button className="primary compact" type="submit"><Plus size={16}/> Add</button>
+    </form>
+  </article>
 }
 
 function ActivityRows({ activities, data, edit }: { activities: Activity[], data: AppData, edit: (a: Activity) => void }) {
   return <div className="activity-rows">{activities.map(a => <button key={a.id} onClick={() => edit(a)}>
     <span className="date-tile"><strong>{dateLabel(a.date, { day: '2-digit' })}</strong><small>{dateLabel(a.date, { month: 'short' })}</small></span>
     <i style={{ background: typeOf(data, a.activityTypeId)?.color }}/>
-    <span className="grow"><strong>{typeName(data, a.activityTypeId)}</strong><small>{[itemName(data.dictionaries.supervisors, a.supervisorId), a.notes].filter(Boolean).join(' · ') || 'No notes'}</small></span>
+    <span className="grow"><strong>{typeName(data, a.activityTypeId)}</strong><small>{[placementName(data.placements, a.placementId, ''), a.notes].filter(Boolean).join(' · ') || 'No notes'}</small></span>
     <strong>{formatHours(a.durationMinutes)}</strong><ChevronRight size={17}/>
   </button>)}</div>
 }
 
-function Reports({ data }: { data: AppData }) {
+function Reports({ data, generatedFor, placementId, setPlacementId }: {
+  data: AppData, generatedFor: string, placementId: string, setPlacementId: (id: string) => void,
+}) {
   const dates = data.activities.map(a => a.date).sort()
   const [from, setFrom] = useState(dates[0] ?? today())
   const [to, setTo] = useState(today())
-  const [typeFilter, setTypeFilter] = useState('all')
   const filtered = data.activities
-    .filter(a => inDateRange(a.date, from, to) && (typeFilter === 'all' || a.activityTypeId === typeFilter))
+    .filter(a => inDateRange(a.date, from, to) && (placementId === 'all' || a.placementId === placementId))
     .sort((a, b) => a.date.localeCompare(b.date))
-  const byType = groupMinutes(filtered, a => typeName(data, a.activityTypeId))
-  const bySupervisor = groupMinutes(filtered, a => itemName(data.dictionaries.supervisors, a.supervisorId, 'Unassigned'))
+  const placements = placementId === 'all' ? data.placements : data.placements.filter(item => item.id === placementId)
+  const generatedOn = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const printReport = () => window.print()
+
   return <section className="page report-page">
-    <PageHeading kicker="Review & export" title="Reports" copy="Create a clear, printable record of the hours you logged." action={<div className="button-row"><button className="secondary" onClick={() => download('hours-of-pee-report.csv', toCsv(data, filtered), 'text/csv')}><Download size={17}/> CSV</button><button className="primary" onClick={() => print()}><FileBarChart size={17}/> Print / PDF</button></div>}/>
-    <article className="panel report-filters">
+    <PageHeading kicker="Review & export" title="Reports" copy="A readable activity summary you can print or save as a PDF." action={<div className="button-row no-print"><button className="secondary" onClick={() => download('hours-of-pee-report.csv', toCsv(data, filtered), 'text/csv')}><Download size={17}/> CSV</button><button className="primary" onClick={printReport}><FileBarChart size={17}/> Print / PDF</button></div>}/>
+    <article className="panel report-filters no-print">
       <label>From<input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)}/></label>
       <label>To<input type="date" value={to} min={from} onChange={e => setTo(e.target.value)}/></label>
-      <label>Activity type<select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="all">All activity types</option>{data.activityTypes.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
+      <label>Placement<select value={placementId} onChange={e => setPlacementId(e.target.value)}><option value="all">All placements</option>{data.placements.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     </article>
-    <article className="panel printable-report">
-      <div className="report-title"><div><span className="kicker">HOURS SUMMARY</span><h2>Hours record</h2><p>{dateLabel(from, { day: 'numeric', month: 'long', year: 'numeric' })} — {dateLabel(to, { day: 'numeric', month: 'long', year: 'numeric' })}</p></div><div className="report-total"><span>Total logged</span><strong>{formatHours(sumMinutes(filtered))}</strong><small>{filtered.length} {filtered.length === 1 ? 'entry' : 'entries'}</small></div></div>
-      <div className="report-breakdown"><ReportGroup title="By activity type" values={byType}/><ReportGroup title="By supervisor" values={bySupervisor}/></div>
-      <div className="report-details"><h3>Entry details</h3><table>
-        <thead><tr><th>Date</th><th>Activity type</th><th>Supervisor</th><th>Hours</th></tr></thead>
-        <tbody>{filtered.map(a => <tr key={a.id}>
-          <td>{dateLabel(a.date, { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-          <td>{typeName(data, a.activityTypeId)}{a.notes && <small>{a.notes}</small>}</td>
-          <td>{itemName(data.dictionaries.supervisors, a.supervisorId, '—')}</td>
-          <td>{formatHours(a.durationMinutes)}</td>
-        </tr>)}</tbody>
+    <article className="panel summary-report">
+      <header className="summary-head">
+        <h1>Activity Summary</h1>
+        <p className="summary-lede">This report includes logged hours only.</p>
+        <p className="summary-meta">Generated for {generatedFor} on {generatedOn}.</p>
+        <p className="summary-range">Date range: {longDate(from)} to {longDate(to)}{placementId !== 'all' ? ` · ${placementName(data.placements, placementId)}` : ''}</p>
+      </header>
+
+      <h2>Hours by Placement</h2>
+      <table className="summary-table">
+        <thead><tr><th>Placement</th><th className="num">Direct</th><th className="num">Indirect</th><th className="num">Total</th></tr></thead>
+        <tbody>
+          {(placements.length ? placements : [{ id: '', name: 'Unassigned', site: '', supervisorId: '', startDate: '', endDate: '', active: true }]).map(placement => {
+            const rows = filtered.filter(item => (placement.id ? item.placementId === placement.id : !item.placementId))
+            if (!rows.length && placement.id) return null
+            const split = categoryMinutes(rows, data.activityTypes)
+            return <tr key={placement.id || 'none'}>
+              <td className="placement-cell">
+                <strong>{placement.name}</strong>
+                {placement.site && <small>at {placement.site}</small>}
+                {rangeLabel(placement.startDate, placement.endDate) && <small>{rangeLabel(placement.startDate, placement.endDate)}</small>}
+              </td>
+              <td className="num">{formatHoursFixed(split.direct ?? 0)}</td>
+              <td className="num">{formatHoursFixed(split.indirect ?? 0)}</td>
+              <td className="num">{formatHoursFixed(sumMinutes(rows))}</td>
+            </tr>
+          })}
+          {filtered.some(item => !item.placementId) && placements.every(item => item.id) && (() => {
+            const rows = filtered.filter(item => !item.placementId)
+            const split = categoryMinutes(rows, data.activityTypes)
+            return <tr key="unassigned">
+              <td className="placement-cell"><strong>Unassigned</strong><small>No placement selected</small></td>
+              <td className="num">{formatHoursFixed(split.direct ?? 0)}</td>
+              <td className="num">{formatHoursFixed(split.indirect ?? 0)}</td>
+              <td className="num">{formatHoursFixed(sumMinutes(rows))}</td>
+            </tr>
+          })()}
+        </tbody>
+        <tfoot><tr>
+          <td>Totals</td>
+          <td className="num">{formatHoursFixed(categoryMinutes(filtered, data.activityTypes).direct ?? 0)}</td>
+          <td className="num">{formatHoursFixed(categoryMinutes(filtered, data.activityTypes).indirect ?? 0)}</td>
+          <td className="num">{formatHoursFixed(sumMinutes(filtered))}</td>
+        </tr></tfoot>
       </table>
-      {!filtered.length && <div className="empty-mini">No hours in this date range.</div>}</div>
-      <div className="signature"><span>Signature</span><i/><span>Date</span><i/></div>
+
+      <h2>Hours by Type</h2>
+      <div className="type-columns">
+        {(['direct', 'indirect'] as const).map(category => {
+          const kinds = kindsFor(category)
+          const rows = kinds.map(kind => ({ kind, minutes: sumMinutes(filtered, item => item.activityTypeId === kind.id) }))
+          const total = rows.reduce((sum, row) => sum + row.minutes, 0)
+          return <div key={category}>
+            <table className="summary-table">
+              <thead><tr><th>{category === 'direct' ? 'Direct' : 'Indirect'}</th><th className="num">Hours</th></tr></thead>
+              <tbody>
+                {rows.filter(row => row.minutes > 0).map(row => <tr key={row.kind.id}><td>{row.kind.name}</td><td className="num">{formatHoursFixed(row.minutes)}</td></tr>)}
+                {!rows.some(row => row.minutes > 0) && <tr><td colSpan={2}>No {category} hours in this range.</td></tr>}
+              </tbody>
+              <tfoot><tr><td>Total</td><td className="num">{formatHoursFixed(total)}</td></tr></tfoot>
+            </table>
+          </div>
+        })}
+      </div>
+
+      <div className="sign-block">
+        <div className="sign-row"><div><div className="sign-line"/><span>Trainee signature</span></div><div><div className="sign-line"/><span>Date</span></div></div>
+        <div className="sign-row"><div><div className="sign-line"/><span>Printed name</span></div><div/></div>
+        <div className="sign-row"><div><div className="sign-line"/><span>Supervisor signature</span></div><div><div className="sign-line"/><span>Date</span></div></div>
+        <div className="sign-row"><div><div className="sign-line"/><span>Printed name</span></div><div/></div>
+        <div className="sign-row"><div><div className="sign-line"/><span>Program verification signature</span></div><div><div className="sign-line"/><span>Date</span></div></div>
+        <div className="sign-row"><div><div className="sign-line"/><span>Printed name</span></div><div><div className="sign-line"/><span>Title / Position</span></div></div>
+      </div>
     </article>
   </section>
-}
-
-function ReportGroup({ title, values }: { title: string, values: Record<string, number> }) {
-  const max = Math.max(...Object.values(values), 1)
-  return <div><h3>{title}</h3>{Object.entries(values).sort((a, b) => b[1] - a[1]).map(([label, minutes]) => <div className="report-bar" key={label}><div><span>{label}</span><strong>{formatHours(minutes)}</strong></div><i><b style={{ width: `${minutes / max * 100}%` }}/></i></div>)}</div>
 }
 
 function SettingsPage({ data, setData, notify }: { data: AppData, setData: React.Dispatch<React.SetStateAction<AppData>>, notify: (message: string) => void }) {
@@ -380,7 +601,7 @@ function SettingsPage({ data, setData, notify }: { data: AppData, setData: React
   }
   const reset = () => { if (prompt('Type DELETE to reset all data in this workspace.') !== 'DELETE') return; setData(resetData()); notify('Workspace reset') }
   return <section className="page">
-    <PageHeading kicker="Your workspace" title="Settings & data" copy="Manage activity types, supervisors, backups, and privacy."/>
+    <PageHeading kicker="Your workspace" title="Settings & data" copy="Backups, privacy, and a clean reset. Supervisors live on the Placement page."/>
     <div className="settings-grid">
       <article className="panel settings-card"><div className="settings-icon"><Database/></div><h2>Backup & restore</h2><p>Save a complete, versioned copy of your hours, or bring a backup back in. Hours are exported in decimal hours.</p>
         <div className="button-row">
@@ -393,121 +614,10 @@ function SettingsPage({ data, setData, notify }: { data: AppData, setData: React
       <article className="panel settings-card privacy-card"><div className="settings-icon"><Users/></div><h2>Privacy by design</h2><p>Keep notes free of names, addresses, medical record numbers, or any other identifying details.</p>
         <div className="privacy-lines"><span><Check/> Your rows are visible only to you</span><span><Check/> No analytics or tracking</span><span><Check/> Export or delete at any time</span></div>
       </article>
-      <ActivityTypeManager data={data} setData={setData} notify={notify}/>
-      <DictionaryManager data={data} setData={setData} notify={notify}/>
+      <article className="panel settings-card"><div className="settings-icon"><Briefcase/></div><h2>Activity types</h2><p>Direct and indirect hours use a fixed list. You cannot add custom types. Manage jobs, sites, and supervisors on the Placement page.</p></article>
       <article className="panel settings-card danger-card"><div className="settings-icon"><Trash2/></div><h2>Reset workspace</h2><p>Remove every entry and start over. Download a backup first if you may need this data.</p><button className="danger" onClick={reset}>Delete all data</button></article>
     </div>
   </section>
-}
-
-function ActivityTypeManager({ data, setData, notify }: { data: AppData, setData: React.Dispatch<React.SetStateAction<AppData>>, notify: (message: string) => void }) {
-  const [name, setName] = useState('')
-  const [category, setCategory] = useState<ActivityCategory>('direct')
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const updateType = (id: string, patch: Partial<ActivityType>) =>
-    setData(current => ({ ...current, activityTypes: current.activityTypes.map(type => type.id === id ? { ...type, ...patch } : type) }))
-  const commitName = (id: string, value: string) => {
-    const trimmed = value.trim()
-    if (trimmed) updateType(id, { name: trimmed })
-    setDrafts(current => { const next = { ...current }; delete next[id]; return next })
-  }
-  const add = (event: React.FormEvent) => {
-    event.preventDefault()
-    const trimmed = name.trim()
-    if (!trimmed) return
-    if (data.activityTypes.some(type => type.name.toLowerCase() === trimmed.toLowerCase())) { notify('That activity type already exists'); return }
-    setData(current => ({ ...current, activityTypes: [...current.activityTypes, {
-      id: uid(), name: trimmed, color: category === 'direct' ? '#42564b' : '#a05d42',
-      defaultMinutes: 60, category, active: true,
-    }] }))
-    setName(''); notify('Activity type added')
-  }
-  const remove = (id: string) => {
-    if (!canRemoveActivityType(data, id)) return
-    if (!confirm('Remove this activity type?')) return
-    setData(current => ({ ...current, activityTypes: current.activityTypes.filter(type => type.id !== id) }))
-    notify('Activity type removed')
-  }
-  return <article className="panel settings-card dictionary-card">
-    <div className="settings-icon"><ActivityIcon/></div>
-    <h2>Activity types</h2>
-    <p>The choices in the “Log hours” dropdown. Direct hours are time with clients; indirect hours cover everything else.</p>
-    <div className="dict-list">
-      {data.activityTypes.map(type => <div className={`dict-row type-row ${type.active ? '' : 'inactive'}`} key={type.id}>
-        <i className="type-swatch" style={{ background: type.color }}/>
-        <input aria-label={`Name for ${type.name}`} value={drafts[type.id] ?? type.name} onChange={e => setDrafts(current => ({ ...current, [type.id]: e.target.value }))} onBlur={e => commitName(type.id, e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}/>
-        <select aria-label={`Category for ${type.name}`} value={type.category} onChange={e => updateType(type.id, { category: e.target.value as ActivityCategory })}>
-          <option value="direct">Direct hours</option>
-          <option value="indirect">Indirect hours</option>
-        </select>
-        <button type="button" className="secondary compact" onClick={() => updateType(type.id, { active: !type.active })}>{type.active ? 'Hide' : 'Show'}</button>
-        <button type="button" className="icon-button" aria-label={`Remove ${type.name}`} disabled={!canRemoveActivityType(data, type.id)} onClick={() => remove(type.id)}><Trash2 size={16}/></button>
-      </div>)}
-    </div>
-    <form className="dict-add" onSubmit={add}>
-      <input aria-label="Add activity type" placeholder="Add activity type" value={name} onChange={e => setName(e.target.value)}/>
-      <select aria-label="Category for the new activity type" value={category} onChange={e => setCategory(e.target.value as ActivityCategory)}>
-        <option value="direct">Direct</option>
-        <option value="indirect">Indirect</option>
-      </select>
-      <button className="primary compact" type="submit"><Plus size={16}/> Add</button>
-    </form>
-  </article>
-}
-
-function DictionaryManager({ data, setData, notify }: { data: AppData, setData: React.Dispatch<React.SetStateAction<AppData>>, notify: (message: string) => void }) {
-  const key: DictionaryKey = 'supervisors'
-  const [newName, setNewName] = useState('')
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const meta = dictionaryMeta.find(item => item.key === key)!
-  const items = data.dictionaries[key]
-
-  const setItems = (next: (items: DictionaryItem[]) => DictionaryItem[]) =>
-    setData(current => ({ ...current, dictionaries: { ...current.dictionaries, [key]: next(current.dictionaries[key]) } }))
-
-  const commitName = (id: string, name: string) => {
-    const trimmed = name.trim()
-    if (trimmed) setItems(list => renameItem(list, id, trimmed))
-    setDrafts(current => { const next = { ...current }; delete next[id]; return next })
-  }
-
-  const add = (event: React.FormEvent) => {
-    event.preventDefault()
-    const trimmed = newName.trim()
-    if (!trimmed) return
-    if (items.some(item => item.name.toLowerCase() === trimmed.toLowerCase())) { notify('That supervisor already exists'); return }
-    setItems(list => findOrCreateNamed(list, trimmed).items)
-    setNewName(''); notify('Supervisor added')
-  }
-
-  const remove = (id: string) => {
-    if (!canRemoveDictionaryItem(data, key, id)) return
-    if (!confirm('Remove this supervisor?')) return
-    setItems(list => removeItem(list, id))
-    notify('Supervisor removed')
-  }
-
-  return <article className="panel settings-card dictionary-card">
-    <div className="settings-icon"><Users/></div>
-    <h2>{meta.label}</h2>
-    <p>{meta.hint}</p>
-    <div className="dict-list">
-      {items.map(item => {
-        const used = dictionaryUsage(data, key, item.id)
-        return <div className={`dict-row ${item.active ? '' : 'inactive'}`} key={item.id}>
-          <input aria-label={`Name for ${item.name}`} value={drafts[item.id] ?? item.name} onChange={e => setDrafts(current => ({ ...current, [item.id]: e.target.value }))} onBlur={e => commitName(item.id, e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}/>
-          <small>{used ? `${used} in use` : 'Unused'}</small>
-          <button type="button" className="secondary compact" onClick={() => setItems(list => setItemActive(list, item.id, !item.active))}>{item.active ? 'Hide' : 'Show'}</button>
-          <button type="button" className="icon-button" aria-label={`Remove ${item.name}`} disabled={!canRemoveDictionaryItem(data, key, item.id)} onClick={() => remove(item.id)}><Trash2 size={16}/></button>
-        </div>
-      })}
-      {!items.length && <div className="empty-mini">No supervisors yet. Add one to attach it to your hours.</div>}
-    </div>
-    <form className="dict-add" onSubmit={add}>
-      <input aria-label="Add supervisor" placeholder="Add supervisor" value={newName} onChange={e => setNewName(e.target.value)}/>
-      <button className="primary compact" type="submit"><Plus size={16}/> Add</button>
-    </form>
-  </article>
 }
 
 function SupervisorSelect({ items, value, onChange, onCreate, labelledBy }: {
@@ -536,25 +646,36 @@ function SupervisorSelect({ items, value, onChange, onCreate, labelledBy }: {
 
 const QUICK_HOURS = [0.5, 1, 1.5, 2, 3, 4, 8]
 
-function ActivityDialog({ activity, data, setData, close, save, remove, openSettings }: {
-  activity: Activity, data: AppData, setData: React.Dispatch<React.SetStateAction<AppData>>,
-  close: () => void, save: (activity: Activity) => Promise<string | null>,
-  remove: (id: string) => Promise<string | null>, openSettings: () => void,
+function ActivityDialog({ activity, data, close, save, remove, openPlacements }: {
+  activity: Activity, data: AppData, close: () => void,
+  save: (activity: Activity) => Promise<string | null>,
+  remove: (id: string) => Promise<string | null>, openPlacements: () => void,
 }) {
+  const initialType = typeOf(data, activity.activityTypeId)
   const [date, setDate] = useState(activity.date || today())
   const [hours, setHours] = useState(String(hoursFromMinutes(activity.durationMinutes) || 1))
-  const [activityTypeId, setActivityTypeId] = useState(activity.activityTypeId)
-  const [supervisorId, setSupervisorId] = useState(activity.supervisorId)
+  const [category, setCategory] = useState<ActivityCategory>(initialType?.category ?? 'direct')
+  const [activityTypeId, setActivityTypeId] = useState(initialType?.id ?? firstKindId('direct'))
+  const [placementId, setPlacementId] = useState(activity.placementId)
   const [notes, setNotes] = useState(activity.notes)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const selectableTypes = activeItems(data.activityTypes, activityTypeId)
   const parsedHours = parseHours(hours)
+  const kindOptions = kindsFor(category)
+  const placements = activeItems(data.placements, placementId)
+  const selectedPlacement = placementOf(data.placements, placementId)
+
+  const chooseCategory = (next: ActivityCategory) => {
+    setCategory(next)
+    if (typeCategory(data, activityTypeId) !== next) setActivityTypeId(firstKindId(next))
+    setError('')
+  }
 
   const problem = () => {
     if (!date) return 'Choose the date you worked.'
-    if (!selectableTypes.length) return 'Add Direct hours or Indirect hours in Settings before logging.'
-    if (!activityTypeId) return 'Choose Direct hours or Indirect hours.'
+    if (!placements.length) return 'Add a placement before logging hours.'
+    if (!placementId) return 'Choose the placement these hours belong to.'
+    if (!activityTypeId) return `Choose a ${category} activity.`
     if (parsedHours === null) return 'Enter how many hours you worked, for example 1.5.'
     if (parsedHours > 24) return 'A single entry cannot be longer than 24 hours.'
     return ''
@@ -567,20 +688,11 @@ function ActivityDialog({ activity, data, setData, close, save, remove, openSett
     if (found) return
     setSaving(true)
     const next = await save({
-      ...activity, date, durationMinutes: minutesFromHours(parsedHours!), activityTypeId, supervisorId, notes: notes.trim(),
+      ...activity, date, durationMinutes: minutesFromHours(parsedHours!), activityTypeId,
+      placementId, supervisorId: selectedPlacement?.supervisorId ?? '', notes: notes.trim(),
     })
     setSaving(false)
     if (next) setError(next)
-  }
-
-  const addSupervisor = (name: string) => {
-    let created = ''
-    setData(current => {
-      const next = findOrCreateNamed(current.dictionaries.supervisors, name)
-      created = next.id
-      return { ...current, dictionaries: { ...current.dictionaries, supervisors: next.items } }
-    })
-    setSupervisorId(created)
   }
 
   return <div className="modal-layer" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !saving) close() }}>
@@ -605,25 +717,33 @@ function ActivityDialog({ activity, data, setData, close, save, remove, openSett
         <div className="field full"><span>Quick pick</span>
           <div className="hour-chips">{QUICK_HOURS.map(value => <button type="button" key={value} className={`chip ${parsedHours === value ? 'on' : ''}`} onClick={() => { setHours(String(value)); setError('') }}>{value} h</button>)}</div>
         </div>
+        <label className="full">Placement
+          <select aria-label="Placement" value={placementId} onChange={e => { setPlacementId(e.target.value); setError('') }}>
+            <option value="">{placements.length ? 'Choose a placement' : 'Add a placement first'}</option>
+            {placements.map(item => <option key={item.id} value={item.id}>{item.name}{item.site ? ` · ${item.site}` : ''}</option>)}
+          </select>
+          {selectedPlacement?.supervisorId && <small>Supervisor: {itemName(data.dictionaries.supervisors, selectedPlacement.supervisorId)}</small>}
+        </label>
         <div className="field full"><span>Activity type</span>
           <div className="type-choice" role="radiogroup" aria-label="Activity type">
-            {(['direct', 'indirect'] as const).map(category => {
-              const type = selectableTypes.find(item => item.category === category)
-              const selected = Boolean(type && activityTypeId === type.id)
-              return <button type="button" key={category} role="radio" aria-checked={selected} disabled={!type} className={`type-choice-btn ${selected ? 'on' : ''}`} onClick={() => { if (type) { setActivityTypeId(type.id); setError('') } }}>
-                <i style={{ background: type?.color ?? (category === 'direct' ? '#42564b' : '#a05d42') }}/>
-                <strong>{category === 'direct' ? 'Direct hours' : 'Indirect hours'}</strong>
-                <small>{category === 'direct' ? 'Time with clients' : 'Everything else'}</small>
+            {(['direct', 'indirect'] as const).map(next => {
+              const selected = category === next
+              return <button type="button" key={next} role="radio" aria-checked={selected} className={`type-choice-btn ${selected ? 'on' : ''}`} onClick={() => chooseCategory(next)}>
+                <i style={{ background: next === 'direct' ? '#42564b' : '#a05d42' }}/>
+                <strong>{next === 'direct' ? 'Direct hours' : 'Indirect hours'}</strong>
+                <small>{next === 'direct' ? 'Time with clients' : 'Everything else'}</small>
               </button>
             })}
           </div>
         </div>
-        <div className="field full"><span id="supervisor-label">Supervisor (optional)</span>
-          <SupervisorSelect labelledBy="supervisor-label" items={data.dictionaries.supervisors} value={supervisorId} onChange={setSupervisorId} onCreate={addSupervisor}/>
-        </div>
+        <label className="full">{category === 'direct' ? 'Direct activity' : 'Indirect activity'}
+          <select aria-label={category === 'direct' ? 'Direct activity' : 'Indirect activity'} value={activityTypeId} onChange={e => { setActivityTypeId(e.target.value); setError('') }}>
+            {kindOptions.map(kind => <option key={kind.id} value={kind.id}>{kind.name}</option>)}
+          </select>
+        </label>
         <label className="full">Notes<textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="A short, useful note…"/></label>
       </div>
-      {error && <p className="form-error" role="alert">{error}{error.includes('Settings') && <> <button type="button" className="text-button" onClick={openSettings}>Open settings</button></>}</p>}
+      {error && <p className="form-error" role="alert">{error}{error.includes('placement') && <> <button type="button" className="text-button" onClick={openPlacements}>Open Placement</button></>}</p>}
       <div className="modal-actions">
         {activity.id && <button type="button" className="danger-text" disabled={saving} onClick={() => void remove(activity.id).then(next => { if (next) setError(next) })}><Trash2 size={17}/> Delete</button>}
         <span/>

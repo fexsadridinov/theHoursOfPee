@@ -18,4 +18,4 @@ export class LocalRepository implements DataRepository {
 }
 
 const entityUploadCount = (data: AppData) =>
-  data.activities.length + data.activityTypes.length + data.dictionaries.supervisors.length
+  data.activities.length + data.placements.length + data.dictionaries.supervisors.length

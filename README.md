@@ -138,9 +138,9 @@ There is no client field. Keep notes free of names, addresses, medical record nu
 
 ## Current product notes
 
-The shipped UI is Overview, month Calendar, Hours list, Reports, and Settings, over local or online persistence. Every workspace starts with two activity types, **Direct hours** and **Indirect hours**; more can be added in Settings and each one is either direct or indirect.
+The shipped UI is Overview, month Calendar, Placement, Reports, and Settings, over local or online persistence. Hours are either **Direct** or **Indirect**, then one of a fixed activity list. Jobs and sites live on the Placement page, which is also the only place to add supervisors.
 
-Experiences, activity statuses, start times, terms, tags, and client labels were removed. Their database columns and tables still exist but are no longer written, so old rows keep their history — see `supabase/migrations/202609150004_hours_only_activities.sql`. Backups from earlier versions still import: the migration in `src/dictionaries.ts` keeps the date, hours, type, supervisor, and notes, and drops the rest.
+Experiences, custom activity types, activity statuses, start times, terms, tags, and client labels were removed. Older experience rows are copied into `placements` — see `supabase/migrations/202609150005_placements.sql`. Backups from earlier versions still import: the migration in `src/dictionaries.ts` keeps the date, hours, activity, placement, supervisor, and notes.
 
 ## Commands
 

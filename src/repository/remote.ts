@@ -1,9 +1,9 @@
 import { emptyRemoteWorkspace, SessionExpiredError, type DataRepository } from './types'
 import { getSupabase } from './supabase'
 import { mergeWithoutOverwrite } from '../migration'
-import { defaultActivityTypes, ensureRequiredTypes } from '../dictionaries'
+import { catalogTypes, resolveKindId, ensurePlacements } from '../dictionaries'
 import { ownershipUserId } from '../auth/access'
-import type { Activity, ActivityType, AppData, DictionaryItem } from '../types'
+import type { Activity, AppData, DictionaryItem, Placement } from '../types'
 
 export class RemoteRepository implements DataRepository {
   kind = 'remote' as const
@@ -17,21 +17,19 @@ export class RemoteRepository implements DataRepository {
   async load(): Promise<AppData> {
     const userId = await this.userId()
     const supabase = getSupabase()
-    const [activityTypes, activities, supervisors] = await Promise.all([
-      supabase.from('activity_types').select('*').eq('user_id', userId),
+    const [activities, supervisors, placements] = await Promise.all([
       supabase.from('activities').select('*').eq('user_id', userId),
       supabase.from('supervisors').select('*').eq('user_id', userId),
+      supabase.from('placements').select('*').eq('user_id', userId),
     ])
-    const failed = [activityTypes, activities, supervisors].find(result => result.error)
+    const failed = [activities, supervisors, placements].find(result => result.error)
     if (failed?.error) throw new Error(failed.error.message)
     const workspace = emptyRemoteWorkspace()
-    const types = (activityTypes.data ?? []).map(mapActivityType)
-    workspace.activityTypes = ensureRequiredTypes(types.length ? types : defaultActivityTypes())
+    workspace.activityTypes = catalogTypes()
+    workspace.placements = (placements.data ?? []).map(mapPlacement)
     workspace.activities = (activities.data ?? []).map(mapActivity)
     workspace.dictionaries = { supervisors: (supervisors.data ?? []).map(mapItem) }
-    // Defaults only lived in memory before, so the first log was also the first write and looked like it did nothing.
-    if (!types.length) await this.save(workspace)
-    return workspace
+    return ensurePlacements(workspace)
   }
 
   async save(data: AppData) {
@@ -43,10 +41,16 @@ export class RemoteRepository implements DataRepository {
     await this.replaceTable('supervisors', userId, data.dictionaries.supervisors.map(item => ({
       id: item.id, user_id: userId, name: item.name, active: item.active,
     })))
+    await this.replaceTable('placements', userId, data.placements.map(item => ({
+      id: item.id, user_id: userId, name: item.name, site: item.site,
+      supervisor_id: emptyToNull(item.supervisorId), start_date: emptyToNull(item.startDate),
+      end_date: emptyToNull(item.endDate), active: item.active,
+    })))
     await this.replaceTable('activities', userId, data.activities.map(item => ({
       id: item.id, user_id: userId, date: item.date, start_time: '',
       duration_minutes: Math.round(item.durationMinutes),
-      activity_type_id: item.activityTypeId, experience_id: null,
+      activity_type_id: resolveKindId(item.activityTypeId),
+      experience_id: null, placement_id: emptyToNull(item.placementId),
       supervisor_id: emptyToNull(item.supervisorId), term_id: null, setting: '', client: '',
       status: null, notes: item.notes,
       created_at: item.createdAt || new Date().toISOString(), updated_at: item.updatedAt || new Date().toISOString(),
@@ -64,7 +68,7 @@ export class RemoteRepository implements DataRepository {
     const { merged, skipped } = mergeWithoutOverwrite(remote, incoming)
     await this.save(merged)
     const skippedCount = Object.values(skipped).reduce((sum, value) => sum + value, 0)
-    const uploaded = incoming.activities.length + incoming.activityTypes.length
+    const uploaded = incoming.activities.length + incoming.placements.length
       + incoming.dictionaries.supervisors.length - skippedCount
     return { uploaded, skipped: skippedCount }
   }
@@ -88,13 +92,15 @@ export class RemoteRepository implements DataRepository {
 
 const emptyToNull = (value: string) => value || null
 const mapItem = (row: { id: string, name: string, active: boolean }): DictionaryItem => ({ id: row.id, name: row.name, active: row.active })
-const mapActivityType = (row: Record<string, string | number | boolean | null>): ActivityType => ({
-  id: String(row.id), name: String(row.name), color: String(row.color),
-  defaultMinutes: Number(row.default_duration), category: row.category === 'direct' ? 'direct' : 'indirect',
-  active: Boolean(row.active),
+const mapPlacement = (row: Record<string, string | number | boolean | null>): Placement => ({
+  id: String(row.id), name: String(row.name), site: String(row.site ?? ''),
+  supervisorId: String(row.supervisor_id ?? ''), startDate: String(row.start_date ?? ''),
+  endDate: String(row.end_date ?? ''), active: row.active !== false,
 })
 const mapActivity = (row: Record<string, string | number | boolean | null>): Activity => ({
   id: String(row.id), date: String(row.date), durationMinutes: Number(row.duration_minutes),
-  activityTypeId: String(row.activity_type_id), supervisorId: String(row.supervisor_id ?? ''),
+  activityTypeId: resolveKindId(String(row.activity_type_id ?? '')),
+  placementId: String(row.placement_id ?? row.experience_id ?? ''),
+  supervisorId: String(row.supervisor_id ?? ''),
   notes: String(row.notes ?? ''), createdAt: String(row.created_at ?? ''), updatedAt: String(row.updated_at ?? ''),
 })

@@ -20,7 +20,7 @@ describe('local-to-remote migration', () => {
   it('counts entities for the migration preview', () => {
     const counts = entityCounts(seedData)
     expect(counts.activities).toBe(seedData.activities.length)
-    expect(counts.activityTypes).toBe(seedData.activityTypes.length)
+    expect(counts.placements).toBe(seedData.placements.length)
     expect(counts.supervisors).toBe(seedData.dictionaries.supervisors.length)
   })
 })
@@ -62,6 +62,7 @@ describe('a brand new online workspace', () => {
     expect(empty.activities).toEqual([])
     expect(empty.schemaVersion).toBe(SCHEMA_VERSION)
     // Without seeded types the activity dropdown is empty and nothing can be saved.
-    expect(empty.activityTypes.map(type => type.category)).toEqual(['direct', 'indirect'])
+    expect(empty.placements).toEqual([])
+    expect(new Set(empty.activityTypes.map(type => type.category))).toEqual(new Set(['direct', 'indirect']))
   })
 })

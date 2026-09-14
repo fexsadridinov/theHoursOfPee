@@ -3,19 +3,19 @@ import type { AppData } from './types'
 
 export interface EntityCounts {
   activities: number
-  activityTypes: number
+  placements: number
   supervisors: number
 }
 
 export const entityCounts = (data: AppData): EntityCounts => ({
   activities: data.activities.length,
-  activityTypes: data.activityTypes.length,
+  placements: data.placements.length,
   supervisors: data.dictionaries.supervisors.length,
 })
 
 export const countLabels: { key: keyof EntityCounts, label: string }[] = [
   { key: 'activities', label: 'logged entries' },
-  { key: 'activityTypes', label: 'activity types' },
+  { key: 'placements', label: 'placements' },
   { key: 'supervisors', label: 'supervisors' },
 ]
 
@@ -26,18 +26,19 @@ export const skipExistingIds = <T extends { id: string }>(incoming: T[], existin
 
 export const mergeWithoutOverwrite = (remote: AppData, local: AppData): { merged: AppData, skipped: EntityCounts } => {
   const activities = skipExistingIds(local.activities, remote.activities.map(item => item.id))
-  const activityTypes = skipExistingIds(local.activityTypes, remote.activityTypes.map(item => item.id))
+  const placements = skipExistingIds(local.placements, remote.placements.map(item => item.id))
   const supervisors = skipExistingIds(local.dictionaries.supervisors, remote.dictionaries.supervisors.map(item => item.id))
   return {
     merged: {
       schemaVersion: remote.schemaVersion,
       activities: [...remote.activities, ...activities],
-      activityTypes: [...remote.activityTypes, ...activityTypes],
+      activityTypes: remote.activityTypes,
+      placements: [...remote.placements, ...placements],
       dictionaries: { supervisors: [...remote.dictionaries.supervisors, ...supervisors] },
     },
     skipped: {
       activities: local.activities.length - activities.length,
-      activityTypes: local.activityTypes.length - activityTypes.length,
+      placements: local.placements.length - placements.length,
       supervisors: local.dictionaries.supervisors.length - supervisors.length,
     },
   }

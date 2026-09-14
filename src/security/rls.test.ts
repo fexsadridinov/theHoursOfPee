@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import sql from '../../supabase/migrations/202609140001_multiuser_rls.sql?raw'
 import indexes from '../../supabase/migrations/202609150001_indexes_invites_status.sql?raw'
 import hoursOnly from '../../supabase/migrations/202609150004_hours_only_activities.sql?raw'
+import placements from '../../supabase/migrations/202609150005_placements.sql?raw'
 
 describe('RLS migration', () => {
   it('enables RLS and ownership checks on user data', () => {
@@ -33,5 +34,14 @@ describe('hours-only migration', () => {
 
   it('does not drop columns, so existing rows keep their history', () => {
     expect(hoursOnly).not.toMatch(/drop column|drop table/i)
+  })
+})
+
+describe('placements migration', () => {
+  it('adds a placements table with the same ownership checks as other user data', () => {
+    expect(placements).toContain('create table if not exists public.placements')
+    expect(placements).toContain('add column if not exists placement_id')
+    expect(placements).toContain('user_id = auth.uid()')
+    expect(placements).toContain('public.is_active_user()')
   })
 })

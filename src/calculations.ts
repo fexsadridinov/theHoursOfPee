@@ -12,6 +12,7 @@ export const parseHours = (value: string) => {
 }
 
 export const formatHours = (minutes: number) => `${hoursFromMinutes(minutes)} h`
+export const formatHoursFixed = (minutes: number) => hoursFromMinutes(minutes).toFixed(2)
 
 export const sumMinutes = (activities: Activity[], predicate: (activity: Activity) => boolean = () => true) =>
   activities.filter(predicate).reduce((sum, item) => sum + item.durationMinutes, 0)

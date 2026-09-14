@@ -3,13 +3,17 @@ import {
   activeItems,
   canRemoveActivityType,
   canRemoveDictionaryItem,
+  canRemovePlacement,
+  catalogTypes,
   defaultActivityTypes,
   dictionaryUsage,
   ensureRequiredTypes,
   findOrCreateNamed,
+  kindsFor,
   migrateToCurrent,
   removeItem,
   renameItem,
+  resolveKindId,
   SCHEMA_VERSION,
   setItemActive,
 } from './dictionaries'
@@ -41,18 +45,30 @@ describe('dictionary helpers', () => {
     expect(activeItems(hidden).map(item => item.id)).toEqual(['sup-jordan'])
   })
 
-  it('blocks removal of supervisors still in use', () => {
+  it('blocks removal of supervisors still in use on hours or placements', () => {
     expect(dictionaryUsage(seedData, 'supervisors', 'sup-maya')).toBeGreaterThan(0)
     expect(canRemoveDictionaryItem(seedData, 'supervisors', 'sup-maya')).toBe(false)
-    const unused = { ...seedData, activities: [] }
+    const unused = { ...seedData, activities: [], placements: seedData.placements.map(item => ({ ...item, supervisorId: '' })) }
     expect(canRemoveDictionaryItem(unused, 'supervisors', 'sup-maya')).toBe(true)
     expect(removeItem(unused.dictionaries.supervisors, 'sup-maya').some(item => item.id === 'sup-maya')).toBe(false)
   })
 
-  it('never leaves a workspace without an activity type', () => {
-    expect(canRemoveActivityType(seedData, 'type-direct')).toBe(false)
-    const single = { ...seedData, activities: [], activityTypes: [defaultActivityTypes()[0]] }
-    expect(canRemoveActivityType(single, 'type-direct')).toBe(false)
+  it('never lets people add or remove the fixed activity catalog', () => {
+    expect(canRemoveActivityType(seedData, 'direct-individual')).toBe(false)
+    expect(catalogTypes()).toHaveLength(13)
+    expect(kindsFor('direct').map(type => type.name)).toEqual([
+      'Intake Interviewing/Assessment', 'Individual Counseling', 'Group Counseling',
+      'Consultation', 'Crisis Intervention', 'Other Communication',
+    ])
+    expect(kindsFor('indirect').map(type => type.name)).toEqual([
+      'Record Keeping', 'Supervision', 'Staff Meeting/Staff Training', 'Research/Session Prep',
+      'Professional Development', 'Outreach/Community Engagement', 'Administrative Tasks',
+    ])
+  })
+
+  it('blocks removing a placement that still has hours', () => {
+    expect(canRemovePlacement(seedData, 'place-riverside')).toBe(false)
+    expect(canRemovePlacement({ ...seedData, activities: [] }, 'place-riverside')).toBe(true)
   })
 })
 
@@ -87,46 +103,68 @@ describe('schema migration', () => {
     expect(next.schemaVersion).toBe(SCHEMA_VERSION)
   })
 
-  it('drops experiences, statuses, clients, and tags while keeping the hours', () => {
+  it('turns experiences into placements and remaps the old activity types', () => {
     const next = migrateToCurrent(legacy)
+    expect(next.placements).toEqual([
+      { id: 'exp-clinic', name: 'Community placement', site: 'Riverside', supervisorId: '', startDate: '2026-06-01', endDate: '', active: true },
+    ])
     expect(next.activities[0]).toEqual({
-      id: 'a1', date: '2026-09-14', durationMinutes: 90, activityTypeId: 'type-direct',
-      supervisorId: 'sup-maya', notes: 'Individual session', createdAt: '', updatedAt: '',
+      id: 'a1', date: '2026-09-14', durationMinutes: 90, activityTypeId: 'direct-individual',
+      placementId: 'exp-clinic', supervisorId: 'sup-maya', notes: 'Individual session', createdAt: '', updatedAt: '',
     })
+    expect(next.activities[1].activityTypeId).toBe('indirect-supervision')
     expect(Object.keys(next.dictionaries)).toEqual(['supervisors'])
     expect('experiences' in next).toBe(false)
-    // Every entry survives the migration; nothing is filtered by its old status.
     expect(totalMinutes(next.activities)).toBe(120)
   })
 
-  it('maps legacy supervisor names and folds supervision into indirect hours', () => {
+  it('maps legacy supervisor names and uses the fixed catalog', () => {
     const next = migrateToCurrent(legacy)
     expect(next.dictionaries.supervisors.some(item => item.name === 'New Supervisor')).toBe(true)
     expect(next.activities[1].supervisorId).toBeTruthy()
-    expect(next.activityTypes.map(type => type.category)).toEqual(['direct', 'indirect'])
+    expect(next.activityTypes).toEqual(defaultActivityTypes())
+    expect(resolveKindId('type-direct')).toBe('direct-individual')
+    expect(resolveKindId('mystery', [{ id: 'mystery', name: 'Intake interview', category: 'direct' }])).toBe('direct-intake')
   })
 
-  it('gives a typeless backup the default direct and indirect types', () => {
+  it('gives a typeless backup the fixed catalog', () => {
     const next = migrateToCurrent({ schemaVersion: 2, activities: [], activityTypes: [] })
-    expect(next.activityTypes.map(type => type.name)).toEqual(['Direct hours', 'Indirect hours'])
+    expect(next.activityTypes).toEqual(catalogTypes())
+    expect(next.placements).toEqual([])
   })
 
-  it('adds a missing indirect type without duplicating an existing direct type', () => {
+  it('keeps existing hours on a migrated placement when none were stored', () => {
+    const next = migrate({
+      schemaVersion: 3,
+      activities: [{ id: 'a1', date: '2026-09-14', durationMinutes: 60, activityTypeId: 'type-direct', supervisorId: '', notes: 'kept', createdAt: '', updatedAt: '' }],
+      activityTypes: [],
+    })
+    expect(next.placements).toEqual([
+      { id: 'place-migrated', name: 'Existing hours', site: '', supervisorId: '', startDate: '', endDate: '', active: true },
+    ])
+    expect(next.activities[0].placementId).toBe('place-migrated')
+  })
+
+  it('replaces leftover custom types with the catalog', () => {
     const next = ensureRequiredTypes([{ id: 'old-direct', name: 'Direct practice', color: '#42564b', defaultMinutes: 60, category: 'direct', active: true }])
-    expect(next.map(type => type.category)).toEqual(['direct', 'indirect'])
+    expect(next.map(type => type.category).filter(category => category === 'direct')).toHaveLength(6)
+    expect(next.map(type => type.category).filter(category => category === 'indirect')).toHaveLength(7)
   })
 
   it('round-trips a JSON export through the importer', () => {
     const restored = migrate(JSON.parse(exportJson(seedData)))
     expect(restored.activities).toEqual(seedData.activities)
+    expect(restored.placements).toEqual(seedData.placements)
     expect(restored.activityTypes).toEqual(seedData.activityTypes)
   })
 
-  it('exports hours and resolved names in CSV', () => {
+  it('exports hours, placement, and resolved names in CSV', () => {
     const csv = toCsv(seedData, seedData.activities.filter(item => item.id === 'a1'))
-    expect(csv).toContain('"Date","Hours","Activity type","Category","Supervisor","Notes"')
+    expect(csv).toContain('"Date","Hours","Category","Activity","Placement","Site","Supervisor","Notes"')
     expect(csv).toContain('"1.5"')
-    expect(csv).toContain('Direct hours')
+    expect(csv).toContain('Individual Counseling')
+    expect(csv).toContain('Community placement')
+    expect(csv).toContain('Riverside Clinic')
     expect(csv).toContain('Dr. Maya Chen')
   })
 })

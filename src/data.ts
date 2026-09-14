@@ -1,5 +1,5 @@
 import { formatHours, hoursFromMinutes } from './calculations'
-import { defaultActivityTypes, defaultDictionaries, itemName, migrateToCurrent, SCHEMA_VERSION } from './dictionaries'
+import { catalogTypes, defaultDictionaries, defaultPlacements, ensurePlacements, itemName, migrateToCurrent, placementName, SCHEMA_VERSION } from './dictionaries'
 import type { Activity, AppData } from './types'
 
 export const STORAGE_KEY = 'the-hours-of-pee:v1'
@@ -10,41 +10,41 @@ const localDate = (offset: number) => {
   return date.toLocaleDateString('en-CA')
 }
 
-const activity = (id: string, offset: number, hours: number, activityTypeId: string, supervisorId: string, notes: string): Activity => ({
-  id, date: localDate(offset), durationMinutes: Math.round(hours * 60), activityTypeId, supervisorId, notes,
+const activity = (id: string, offset: number, hours: number, activityTypeId: string, placementId: string, supervisorId: string, notes: string): Activity => ({
+  id, date: localDate(offset), durationMinutes: Math.round(hours * 60), activityTypeId, placementId, supervisorId, notes,
   createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
 })
 
 export const seedData: AppData = {
   schemaVersion: SCHEMA_VERSION,
   dictionaries: defaultDictionaries(),
-  activityTypes: defaultActivityTypes(),
+  activityTypes: catalogTypes(),
+  placements: defaultPlacements(),
   activities: [
-    activity('a1', 0, 1.5, 'type-direct', 'sup-maya', 'Individual session'),
-    activity('a2', 0, 0.5, 'type-indirect', 'sup-maya', 'Session notes'),
-    activity('a3', -1, 1, 'type-indirect', 'sup-jordan', 'Weekly supervision'),
-    activity('a4', -2, 2, 'type-direct', 'sup-jordan', 'Group workshop'),
-    activity('a5', -3, 0.75, 'type-indirect', '', 'Assessment write-up'),
-    activity('a6', -7, 3, 'type-direct', 'sup-maya', 'Community outreach'),
+    activity('a1', 0, 1.5, 'direct-individual', 'place-riverside', 'sup-maya', 'Individual session'),
+    activity('a2', 0, 0.5, 'indirect-records', 'place-riverside', 'sup-maya', 'Session notes'),
+    activity('a3', -1, 1, 'indirect-supervision', 'place-school', 'sup-jordan', 'Weekly supervision'),
+    activity('a4', -2, 2, 'direct-group', 'place-school', 'sup-jordan', 'Group workshop'),
+    activity('a5', -3, 0.75, 'indirect-research', 'place-riverside', '', 'Assessment write-up'),
+    activity('a6', -7, 3, 'indirect-outreach', 'place-riverside', 'sup-maya', 'Community outreach'),
   ],
 }
 
 export const isValidBackup = (value: unknown): value is {
   schemaVersion: number
   activities: AppData['activities']
-  activityTypes: AppData['activityTypes']
+  activityTypes?: AppData['activityTypes']
+  placements?: AppData['placements']
   dictionaries?: Partial<AppData['dictionaries']>
 } => {
   if (!value || typeof value !== 'object') return false
   const data = value as AppData
-  return [1, 2, SCHEMA_VERSION].includes(data.schemaVersion)
-    && Array.isArray(data.activities)
-    && Array.isArray(data.activityTypes)
+  return [1, 2, 3, SCHEMA_VERSION].includes(data.schemaVersion) && Array.isArray(data.activities)
 }
 
 export const migrate = (raw: unknown): AppData => {
   if (!isValidBackup(raw)) throw new Error('Invalid backup')
-  return migrateToCurrent(raw)
+  return ensurePlacements(migrateToCurrent(raw))
 }
 
 export const loadData = (): AppData => {
@@ -76,12 +76,14 @@ export const download = (name: string, contents: string, type: string) => {
 export const toCsv = (data: AppData, activities = data.activities) => {
   const types = new Map(data.activityTypes.map(type => [type.id, type]))
   const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`
-  const header = ['Date', 'Hours', 'Activity type', 'Category', 'Supervisor', 'Notes']
+  const header = ['Date', 'Hours', 'Category', 'Activity', 'Placement', 'Site', 'Supervisor', 'Notes']
   return [header, ...[...activities].sort((a, b) => a.date.localeCompare(b.date)).map(item => [
     item.date,
     hoursFromMinutes(item.durationMinutes),
-    types.get(item.activityTypeId)?.name ?? '',
     types.get(item.activityTypeId)?.category ?? '',
+    types.get(item.activityTypeId)?.name ?? '',
+    placementName(data.placements, item.placementId, ''),
+    data.placements.find(placement => placement.id === item.placementId)?.site ?? '',
     itemName(data.dictionaries.supervisors, item.supervisorId),
     item.notes,
   ])].map(row => row.map(escape).join(',')).join('\n')
@@ -96,6 +98,7 @@ export const exportJson = (data: AppData) => JSON.stringify({
     hours: hoursFromMinutes(item.durationMinutes),
   })),
   activityTypes: data.activityTypes,
+  placements: data.placements,
   dictionaries: data.dictionaries,
 }, null, 2)
 

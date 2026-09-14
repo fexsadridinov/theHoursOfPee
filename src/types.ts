@@ -21,12 +21,23 @@ export interface ActivityType {
   active: boolean
 }
 
+export interface Placement {
+  id: string
+  name: string
+  site: string
+  supervisorId: string
+  startDate: string
+  endDate: string
+  active: boolean
+}
+
 // Hours are the unit people work in; minutes are stored so quarter hours stay exact.
 export interface Activity {
   id: string
   date: string
   durationMinutes: number
   activityTypeId: string
+  placementId: string
   supervisorId: string
   notes: string
   createdAt: string
@@ -37,5 +48,6 @@ export interface AppData {
   schemaVersion: number
   activities: Activity[]
   activityTypes: ActivityType[]
+  placements: Placement[]
   dictionaries: Dictionaries
 }
