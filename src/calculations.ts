@@ -5,6 +5,12 @@ export const MINUTES_PER_HOUR = 60
 export const minutesFromHours = (hours: number) => Math.round(Number(hours) * MINUTES_PER_HOUR)
 export const hoursFromMinutes = (minutes: number) => Math.round((minutes / MINUTES_PER_HOUR) * 100) / 100
 
+export const parseHours = (value: string) => {
+  const hours = Number(String(value).trim().replace(',', '.'))
+  if (!Number.isFinite(hours) || hours <= 0) return null
+  return hours
+}
+
 export const formatHours = (minutes: number) => `${hoursFromMinutes(minutes)} h`
 
 export const sumMinutes = (activities: Activity[], predicate: (activity: Activity) => boolean = () => true) =>

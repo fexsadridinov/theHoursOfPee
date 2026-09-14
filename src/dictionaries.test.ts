@@ -5,6 +5,7 @@ import {
   canRemoveDictionaryItem,
   defaultActivityTypes,
   dictionaryUsage,
+  ensureRequiredTypes,
   findOrCreateNamed,
   migrateToCurrent,
   removeItem,
@@ -108,6 +109,11 @@ describe('schema migration', () => {
   it('gives a typeless backup the default direct and indirect types', () => {
     const next = migrateToCurrent({ schemaVersion: 2, activities: [], activityTypes: [] })
     expect(next.activityTypes.map(type => type.name)).toEqual(['Direct hours', 'Indirect hours'])
+  })
+
+  it('adds a missing indirect type without duplicating an existing direct type', () => {
+    const next = ensureRequiredTypes([{ id: 'old-direct', name: 'Direct practice', color: '#42564b', defaultMinutes: 60, category: 'direct', active: true }])
+    expect(next.map(type => type.category)).toEqual(['direct', 'indirect'])
   })
 
   it('round-trips a JSON export through the importer', () => {

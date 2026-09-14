@@ -1,7 +1,7 @@
 import { emptyRemoteWorkspace, SessionExpiredError, type DataRepository } from './types'
 import { getSupabase } from './supabase'
 import { mergeWithoutOverwrite } from '../migration'
-import { defaultActivityTypes } from '../dictionaries'
+import { defaultActivityTypes, ensureRequiredTypes } from '../dictionaries'
 import { ownershipUserId } from '../auth/access'
 import type { Activity, ActivityType, AppData, DictionaryItem } from '../types'
 
@@ -23,12 +23,14 @@ export class RemoteRepository implements DataRepository {
       supabase.from('supervisors').select('*').eq('user_id', userId),
     ])
     const failed = [activityTypes, activities, supervisors].find(result => result.error)
-    if (failed?.error) throw failed.error
+    if (failed?.error) throw new Error(failed.error.message)
     const workspace = emptyRemoteWorkspace()
     const types = (activityTypes.data ?? []).map(mapActivityType)
-    workspace.activityTypes = types.length ? types : defaultActivityTypes()
+    workspace.activityTypes = ensureRequiredTypes(types.length ? types : defaultActivityTypes())
     workspace.activities = (activities.data ?? []).map(mapActivity)
     workspace.dictionaries = { supervisors: (supervisors.data ?? []).map(mapItem) }
+    // Defaults only lived in memory before, so the first log was also the first write and looked like it did nothing.
+    if (!types.length) await this.save(workspace)
     return workspace
   }
 
@@ -42,8 +44,11 @@ export class RemoteRepository implements DataRepository {
       id: item.id, user_id: userId, name: item.name, active: item.active,
     })))
     await this.replaceTable('activities', userId, data.activities.map(item => ({
-      id: item.id, user_id: userId, date: item.date, duration_minutes: Math.round(item.durationMinutes),
-      activity_type_id: item.activityTypeId, supervisor_id: emptyToNull(item.supervisorId), notes: item.notes,
+      id: item.id, user_id: userId, date: item.date, start_time: '',
+      duration_minutes: Math.round(item.durationMinutes),
+      activity_type_id: item.activityTypeId, experience_id: null,
+      supervisor_id: emptyToNull(item.supervisorId), term_id: null, setting: '', client: '',
+      status: null, notes: item.notes,
       created_at: item.createdAt || new Date().toISOString(), updated_at: item.updatedAt || new Date().toISOString(),
     })))
   }
@@ -72,11 +77,11 @@ export class RemoteRepository implements DataRepository {
     const remove = (existing ?? []).map(row => row.id).filter(id => !keep.has(id))
     if (remove.length) {
       const { error } = await supabase.from(table).delete().eq('user_id', userId).in('id', remove)
-      if (error) throw error
+      if (error) throw new Error(error.message)
     }
     if (rows.length) {
       const { error } = await supabase.from(table).upsert(rows, { onConflict: 'user_id,id' })
-      if (error) throw error
+      if (error) throw new Error(error.message)
     }
   }
 }

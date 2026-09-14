@@ -10,7 +10,9 @@ import { useAuth } from '../auth/AuthProvider'
 interface WorkspaceValue {
   data: AppData
   setData: React.Dispatch<React.SetStateAction<AppData>>
+  commit: (next: AppData) => Promise<string | null>
   status: SaveStatus
+  lastError: string | null
   kind: 'local' | 'remote'
   retry: () => void
   migration: { counts: EntityCounts, local: AppData } | null
@@ -25,6 +27,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const repo = useRef(createRepository(remote ? 'remote' : 'local'))
   const [data, setData] = useState<AppData>(loadData)
   const [status, setStatus] = useState<SaveStatus>('saved')
+  const [lastError, setLastError] = useState<string | null>(null)
   const [ready, setReady] = useState(!remote)
   const [migration, setMigration] = useState<WorkspaceValue['migration']>(null)
   const skipSave = useRef(true)
@@ -61,11 +64,36 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setStatus('saving')
     try {
       await repo.current.save(next)
+      setLastError(null)
       setStatus('saved')
     } catch (error) {
+      setLastError(error instanceof Error ? error.message : 'Your changes could not be saved.')
       setStatus(error instanceof SessionExpiredError ? 'expired' : 'failed')
     }
   }, [remote, ready])
+
+  const commit = async (next: AppData) => {
+    if (remote && !navigator.onLine) {
+      setStatus('offline')
+      return 'You appear to be offline. Check your connection and try again.'
+    }
+    setStatus('saving')
+    try {
+      await repo.current.save(next)
+      skipSave.current = true
+      setData(next)
+      setLastError(null)
+      setStatus('saved')
+      return null
+    } catch (error) {
+      const message = error instanceof SessionExpiredError
+        ? 'Your session expired. Please sign in again.'
+        : error instanceof Error ? error.message : 'Your hours could not be saved. Try again.'
+      setLastError(message)
+      setStatus(error instanceof SessionExpiredError ? 'expired' : 'failed')
+      return message
+    }
+  }
 
   useEffect(() => { void persist(data) }, [data, persist])
   useEffect(() => {
@@ -98,7 +126,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   if (remote && !ready) return <div className="auth-screen"><div className="auth-card"><p>Loading your workspace…</p></div></div>
 
-  return <WorkspaceContext.Provider value={{ data, setData, status, kind: repo.current.kind, retry, migration, resolveMigration, recordAudit }}>{children}</WorkspaceContext.Provider>
+  return <WorkspaceContext.Provider value={{ data, setData, commit, status, lastError, kind: repo.current.kind, retry, migration, resolveMigration, recordAudit }}>{children}</WorkspaceContext.Provider>
 }
 
 export const useWorkspace = () => {

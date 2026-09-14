@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import {
   categoryMinutes, formatHours, groupMinutes, hoursFromMinutes,
-  inDateRange, minutesFromHours, sumMinutes, totalMinutes,
+  inDateRange, minutesFromHours, parseHours, sumMinutes, totalMinutes,
 } from './calculations'
 import { download, exportJson, isValidBackup, migrate, resetData, toCsv } from './data'
 import { useAuth, navigate } from './auth/AuthProvider'
@@ -30,9 +30,16 @@ const startOfWeek = (date: Date) => { const copy = new Date(date); const day = (
 const iso = (date: Date) => date.toLocaleDateString('en-CA')
 const typeOf = (data: AppData, id: string) => data.activityTypes.find(type => type.id === id)
 const typeName = (data: AppData, id: string) => typeOf(data, id)?.name ?? 'Activity'
+const shiftDate = (date: string, days: number) => {
+  const next = new Date(`${date || today()}T12:00:00`)
+  next.setDate(next.getDate() + days)
+  return iso(next)
+}
 
 const emptyActivity = (data: AppData, date = today()): Activity => {
-  const type = data.activityTypes.find(item => item.active) ?? data.activityTypes[0]
+  const type = data.activityTypes.find(item => item.active && item.category === 'direct')
+    ?? data.activityTypes.find(item => item.active)
+    ?? data.activityTypes[0]
   return {
     id: '', date, durationMinutes: type?.defaultMinutes ?? 60, activityTypeId: type?.id ?? '',
     supervisorId: '', notes: '', createdAt: '', updatedAt: '',
@@ -40,7 +47,7 @@ const emptyActivity = (data: AppData, date = today()): Activity => {
 }
 
 function SaveBanner() {
-  const { status, retry, kind } = useWorkspace()
+  const { status, retry, kind, lastError } = useWorkspace()
   // "Saved" is reassurance, not a permanent state, so it fades out instead of holding a bar on every page.
   const [showSaved, setShowSaved] = useState(false)
   useEffect(() => {
@@ -54,7 +61,7 @@ function SaveBanner() {
   if (status === 'saving') return <div className="sync-banner" role="status">Saving…</div>
   if (status === 'offline') return <div className="sync-banner warn" role="status">Your changes could not be saved. Check your connection and try again.</div>
   if (status === 'expired') return <div className="sync-banner warn" role="status">Your session expired. Please sign in again. <button className="text-button" onClick={() => navigate('/login')}>Sign in</button></div>
-  return <div className="sync-banner warn" role="status">Your changes could not be saved. Check your connection and try again. <button className="text-button" onClick={retry}>Retry</button></div>
+  return <div className="sync-banner warn" role="status">{lastError || 'Your changes could not be saved. Check your connection and try again.'} <button className="text-button" onClick={retry}>Retry</button></div>
 }
 
 function MigrationModal() {
@@ -76,7 +83,7 @@ function MigrationModal() {
 }
 
 function App({ section }: { section?: Section }) {
-  const { data, setData, recordAudit, kind } = useWorkspace()
+  const { data, setData, commit, kind } = useWorkspace()
   const { remote, profile, signOut } = useAuth()
   const [page, setPage] = useState<Page>('dashboard')
   const [navOpen, setNavOpen] = useState(false)
@@ -86,18 +93,23 @@ function App({ section }: { section?: Section }) {
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(''), 2600); return () => clearTimeout(id) }, [toast])
 
   const openNew = (date?: string) => setEditing(emptyActivity(data, date))
-  const saveActivity = (activity: Activity) => {
+  const saveActivity = async (activity: Activity) => {
     const now = new Date().toISOString()
-    setData(current => ({ ...current, activities: activity.id
-      ? current.activities.map(item => item.id === activity.id ? { ...activity, updatedAt: now } : item)
-      : [{ ...activity, id: uid(), createdAt: now, updatedAt: now }, ...current.activities],
-    }))
+    const next: AppData = { ...data, activities: activity.id
+      ? data.activities.map(item => item.id === activity.id ? { ...activity, updatedAt: now } : item)
+      : [{ ...activity, id: uid(), createdAt: now, updatedAt: now }, ...data.activities],
+    }
+    const error = await commit(next)
+    if (error) return error
     setEditing(null); setToast(activity.id ? 'Hours updated' : 'Hours logged')
+    return null
   }
-  const removeActivity = (id: string) => {
-    if (!confirm('Delete this entry? This cannot be undone.')) return
-    setData(current => ({ ...current, activities: current.activities.filter(item => item.id !== id) }))
+  const removeActivity = async (id: string) => {
+    if (!confirm('Delete this entry? This cannot be undone.')) return null
+    const error = await commit({ ...data, activities: data.activities.filter(item => item.id !== id) })
+    if (error) return error
     setEditing(null); setToast('Entry deleted')
+    return null
   }
 
   const nav = [
@@ -526,32 +538,39 @@ const QUICK_HOURS = [0.5, 1, 1.5, 2, 3, 4, 8]
 
 function ActivityDialog({ activity, data, setData, close, save, remove, openSettings }: {
   activity: Activity, data: AppData, setData: React.Dispatch<React.SetStateAction<AppData>>,
-  close: () => void, save: (activity: Activity) => void, remove: (id: string) => void, openSettings: () => void,
+  close: () => void, save: (activity: Activity) => Promise<string | null>,
+  remove: (id: string) => Promise<string | null>, openSettings: () => void,
 }) {
   const [date, setDate] = useState(activity.date || today())
-  const [hours, setHours] = useState(String(hoursFromMinutes(activity.durationMinutes)))
+  const [hours, setHours] = useState(String(hoursFromMinutes(activity.durationMinutes) || 1))
   const [activityTypeId, setActivityTypeId] = useState(activity.activityTypeId)
   const [supervisorId, setSupervisorId] = useState(activity.supervisorId)
   const [notes, setNotes] = useState(activity.notes)
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
   const selectableTypes = activeItems(data.activityTypes, activityTypeId)
-  const numericHours = Number(hours)
+  const parsedHours = parseHours(hours)
 
   const problem = () => {
     if (!date) return 'Choose the date you worked.'
-    if (!selectableTypes.length) return 'Add an activity type in Settings before logging hours.'
-    if (!activityTypeId) return 'Choose an activity type.'
-    if (!Number.isFinite(numericHours) || numericHours <= 0) return 'Enter how many hours you worked, for example 1.5.'
-    if (numericHours > 24) return 'A single entry cannot be longer than 24 hours.'
+    if (!selectableTypes.length) return 'Add Direct hours or Indirect hours in Settings before logging.'
+    if (!activityTypeId) return 'Choose Direct hours or Indirect hours.'
+    if (parsedHours === null) return 'Enter how many hours you worked, for example 1.5.'
+    if (parsedHours > 24) return 'A single entry cannot be longer than 24 hours.'
     return ''
   }
 
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     const found = problem()
     setError(found)
     if (found) return
-    save({ ...activity, date, durationMinutes: minutesFromHours(numericHours), activityTypeId, supervisorId, notes: notes.trim() })
+    setSaving(true)
+    const next = await save({
+      ...activity, date, durationMinutes: minutesFromHours(parsedHours!), activityTypeId, supervisorId, notes: notes.trim(),
+    })
+    setSaving(false)
+    if (next) setError(next)
   }
 
   const addSupervisor = (name: string) => {
@@ -564,28 +583,41 @@ function ActivityDialog({ activity, data, setData, close, save, remove, openSett
     setSupervisorId(created)
   }
 
-  return <div className="modal-layer" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) close() }}>
-    <form className="modal" onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="activity-title">
+  return <div className="modal-layer" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !saving) close() }}>
+    <form className="modal" onSubmit={e => void submit(e)} role="dialog" aria-modal="true" aria-labelledby="activity-title">
       <div className="modal-head">
         <div><span className="kicker">{activity.id ? 'EDIT ENTRY' : 'NEW ENTRY'}</span><h2 id="activity-title">{activity.id ? 'Edit hours' : 'Log your hours'}</h2></div>
-        <button type="button" className="icon-button" aria-label="Close" onClick={close}><X/></button>
+        <button type="button" className="icon-button" aria-label="Close" disabled={saving} onClick={close}><X/></button>
       </div>
       <div className="form-grid">
-        <label>Date<input type="date" value={date} onChange={e => { setDate(e.target.value); setError('') }}/></label>
-        <label>Hours
-          {/* Validation lives in problem() so people get a sentence they can act on, not a browser tooltip. */}
-          <input aria-label="Hours" type="number" inputMode="decimal" step="any" value={hours} onChange={e => { setHours(e.target.value); setError('') }}/>
-          <small>Decimals are fine — 1.5 means one and a half hours.</small>
+        <label className="full">Date
+          <input type="date" value={date} onChange={e => { setDate(e.target.value); setError('') }}/>
+          <div className="hour-chips date-chips">
+            <button type="button" className={`chip ${date === today() ? 'on' : ''}`} onClick={() => { setDate(today()); setError('') }}>Today</button>
+            <button type="button" className="chip" onClick={() => { setDate(shiftDate(date || today(), -1)); setError('') }}>Previous day</button>
+            <button type="button" className="chip" onClick={() => { setDate(shiftDate(date || today(), 1)); setError('') }}>Next day</button>
+          </div>
+        </label>
+        <label className="full">Hours
+          <input aria-label="Hours" type="text" inputMode="decimal" value={hours} onChange={e => { setHours(e.target.value); setError('') }}/>
+          <small>Use decimal hours — 1.5 is one and a half hours.</small>
         </label>
         <div className="field full"><span>Quick pick</span>
-          <div className="hour-chips">{QUICK_HOURS.map(value => <button type="button" key={value} className={`chip ${numericHours === value ? 'on' : ''}`} onClick={() => { setHours(String(value)); setError('') }}>{value} h</button>)}</div>
+          <div className="hour-chips">{QUICK_HOURS.map(value => <button type="button" key={value} className={`chip ${parsedHours === value ? 'on' : ''}`} onClick={() => { setHours(String(value)); setError('') }}>{value} h</button>)}</div>
         </div>
-        <label className="full">Activity type
-          <select value={activityTypeId} onChange={e => { setActivityTypeId(e.target.value); setError('') }}>
-            <option value="">Choose a type…</option>
-            {selectableTypes.map(type => <option value={type.id} key={type.id}>{type.name}</option>)}
-          </select>
-        </label>
+        <div className="field full"><span>Activity type</span>
+          <div className="type-choice" role="radiogroup" aria-label="Activity type">
+            {(['direct', 'indirect'] as const).map(category => {
+              const type = selectableTypes.find(item => item.category === category)
+              const selected = Boolean(type && activityTypeId === type.id)
+              return <button type="button" key={category} role="radio" aria-checked={selected} disabled={!type} className={`type-choice-btn ${selected ? 'on' : ''}`} onClick={() => { if (type) { setActivityTypeId(type.id); setError('') } }}>
+                <i style={{ background: type?.color ?? (category === 'direct' ? '#42564b' : '#a05d42') }}/>
+                <strong>{category === 'direct' ? 'Direct hours' : 'Indirect hours'}</strong>
+                <small>{category === 'direct' ? 'Time with clients' : 'Everything else'}</small>
+              </button>
+            })}
+          </div>
+        </div>
         <div className="field full"><span id="supervisor-label">Supervisor (optional)</span>
           <SupervisorSelect labelledBy="supervisor-label" items={data.dictionaries.supervisors} value={supervisorId} onChange={setSupervisorId} onCreate={addSupervisor}/>
         </div>
@@ -593,10 +625,10 @@ function ActivityDialog({ activity, data, setData, close, save, remove, openSett
       </div>
       {error && <p className="form-error" role="alert">{error}{error.includes('Settings') && <> <button type="button" className="text-button" onClick={openSettings}>Open settings</button></>}</p>}
       <div className="modal-actions">
-        {activity.id && <button type="button" className="danger-text" onClick={() => remove(activity.id)}><Trash2 size={17}/> Delete</button>}
+        {activity.id && <button type="button" className="danger-text" disabled={saving} onClick={() => void remove(activity.id).then(next => { if (next) setError(next) })}><Trash2 size={17}/> Delete</button>}
         <span/>
-        <button type="button" className="secondary" onClick={close}>Cancel</button>
-        <button className="primary" type="submit">{activity.id ? 'Save changes' : 'Save entry'}</button>
+        <button type="button" className="secondary" disabled={saving} onClick={close}>Cancel</button>
+        <button className="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : activity.id ? 'Save changes' : 'Save entry'}</button>
       </div>
     </form>
   </div>

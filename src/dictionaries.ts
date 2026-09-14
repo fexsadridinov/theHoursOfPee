@@ -31,6 +31,15 @@ export const defaultActivityTypes = (): ActivityType[] => [
   { id: 'type-indirect', name: 'Indirect hours', color: '#a05d42', defaultMinutes: 60, category: 'indirect', active: true },
 ]
 
+export const ensureRequiredTypes = (types: ActivityType[]): ActivityType[] => {
+  if (!types.length) return defaultActivityTypes()
+  const next = [...types]
+  for (const required of defaultActivityTypes()) {
+    if (!next.some(type => type.category === required.category)) next.push(required)
+  }
+  return next
+}
+
 export const itemName = (items: DictionaryItem[], id: string, fallback = '') =>
   items.find(item => item.id === id)?.name ?? fallback
 
@@ -130,7 +139,7 @@ export const migrateToCurrent = (raw: {
   return {
     schemaVersion: SCHEMA_VERSION,
     activities,
-    activityTypes: activityTypes.length ? activityTypes : defaultActivityTypes(),
+    activityTypes: activityTypes.length ? ensureRequiredTypes(activityTypes) : defaultActivityTypes(),
     dictionaries,
   }
 }

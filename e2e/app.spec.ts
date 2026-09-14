@@ -13,6 +13,18 @@ test('logging hours works with nothing but the prefilled defaults', async ({ pag
   await expect(page.getByText('1.5 h').first()).toBeVisible()
 })
 
+test('direct and indirect hours are both offered in the log dialog', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Log hours', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('radio', { name: /Direct hours/ })).toBeVisible()
+  await expect(dialog.getByRole('radio', { name: /Indirect hours/ })).toBeVisible()
+  await dialog.getByRole('radio', { name: /Indirect hours/ }).click()
+  await dialog.getByLabel('Hours', { exact: true }).fill('2')
+  await dialog.getByLabel('Notes').fill('Indirect write-up')
+  await dialog.getByRole('button', { name: 'Save entry' }).click()
+  await expect(page.getByText('Indirect write-up')).toBeVisible()
+})
 test('the quick pick keeps the hours field in step', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Log hours', exact: true }).first().click()

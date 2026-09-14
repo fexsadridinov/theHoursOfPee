@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  categoryMinutes, formatHours, groupMinutes, hoursFromMinutes, inDateRange, minutesFromHours, sumMinutes, totalMinutes,
+  categoryMinutes, formatHours, groupMinutes, hoursFromMinutes, inDateRange, minutesFromHours, parseHours, sumMinutes, totalMinutes,
 } from './calculations'
 import { defaultActivityTypes } from './dictionaries'
 import type { Activity } from './types'
@@ -27,6 +27,13 @@ describe('hour calculations', () => {
     expect(formatHours(60)).toBe('1 h')
     expect(formatHours(45)).toBe('0.75 h')
     expect(formatHours(0)).toBe('0 h')
+  })
+
+  it('reads hours typed with a comma or extra space', () => {
+    expect(parseHours('1.5')).toBe(1.5)
+    expect(parseHours(' 2,25 ')).toBe(2.25)
+    expect(parseHours('0')).toBeNull()
+    expect(parseHours('hours')).toBeNull()
   })
 
   it('splits hours into direct and indirect', () => {
