@@ -16,6 +16,17 @@ test('signing out is a no-op in local mode and the workspace remains', async ({ 
   await expect(page.getByRole('heading', { name: 'Good afternoon.' })).toBeVisible()
 })
 
+test('every page keeps a way back to the dashboard', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await expect(page.getByRole('heading', { name: 'Settings & data' })).toBeVisible()
+  await page.getByRole('button', { name: 'Dashboard' }).click()
+  await expect(page.getByRole('heading', { name: 'Good afternoon.' })).toBeVisible()
+  await page.getByRole('button', { name: 'Reports' }).click()
+  await page.getByRole('button', { name: 'the Hours of Pee — go to overview' }).click()
+  await expect(page.getByRole('heading', { name: 'Good afternoon.' })).toBeVisible()
+})
+
 test.describe('remote flows', () => {
   test.skip(!process.env.PLAYWRIGHT_REMOTE, 'Set PLAYWRIGHT_REMOTE=1 with a seeded Supabase project to run online tests.')
   test('accepting an invitation', async () => { expect(process.env.PLAYWRIGHT_REMOTE).toBeTruthy() })
