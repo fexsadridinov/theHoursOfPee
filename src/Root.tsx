@@ -3,11 +3,21 @@ import { decideRoute } from './auth/access'
 import { AuthProvider, navigate, useAuth, usePath } from './auth/AuthProvider'
 import { AuthCallbackPage, AuthErrorPage, ConfirmEmailPage, ForgotPasswordPage, InvitePage, LoginPage, RegisterPage, ResetPasswordPage, SetPasswordPage, SuspendedPage } from './auth/pages'
 import { WorkspaceProvider } from './workspace/WorkspaceProvider'
+import { Button } from './components/ui/button'
+import { Card } from './components/ui/card'
 
 function Gate() {
   const path = usePath()
   const { remote, loading, status, session, profile } = useAuth()
-  if (loading || status === 'loading') return <div className="auth-screen"><div className="auth-card"><p>Restoring your session…</p></div></div>
+  if (loading || status === 'loading') {
+    return (
+      <div className="grid min-h-svh place-items-center p-6">
+        <Card className="w-full max-w-md p-8">
+          <p className="text-sm text-muted-foreground">Restoring your session…</p>
+        </Card>
+      </div>
+    )
+  }
   if (status === 'error') return <AuthErrorPage />
   const pathname = path.split('?')[0]
   if (pathname === '/auth/callback' || pathname === '/auth/confirm') return <AuthCallbackPage />
@@ -24,7 +34,17 @@ function Gate() {
   if (decision === 'confirm') return <ConfirmEmailPage />
   if (decision === 'suspended' || status === 'suspended') return <SuspendedPage />
   if (decision === 'password') return <SetPasswordPage />
-  if (decision === 'forbidden') return <div className="auth-screen"><div className="auth-card"><h1>Not allowed</h1><p>You do not have permission to access this page.</p><button className="primary" onClick={() => navigate('/')}>Back to dashboard</button></div></div>
+  if (decision === 'forbidden') {
+    return (
+      <div className="grid min-h-svh place-items-center p-6">
+        <Card className="flex w-full max-w-md flex-col gap-3 p-8">
+          <h1 className="font-serif text-2xl font-semibold">Not allowed</h1>
+          <p className="text-sm text-muted-foreground">You do not have permission to access this page.</p>
+          <Button onClick={() => navigate('/')}>Back to dashboard</Button>
+        </Card>
+      </div>
+    )
+  }
   return <WorkspaceProvider>
     <App section={decision === 'admin' ? 'admin' : decision === 'account' ? 'account' : undefined} />
   </WorkspaceProvider>

@@ -1,5 +1,5 @@
 import { formatHours, hoursFromMinutes } from './calculations'
-import { catalogTypes, defaultDictionaries, defaultPlacements, ensurePlacements, itemName, migrateToCurrent, placementName, SCHEMA_VERSION } from './dictionaries'
+import { catalogTypes, defaultDictionaries, defaultPlacements, ensurePlacements, migrateToCurrent, SCHEMA_VERSION } from './dictionaries'
 import type { Activity, AppData } from './types'
 
 export const STORAGE_KEY = 'the-hours-of-pee:v1'
@@ -71,22 +71,6 @@ export const download = (name: string, contents: string, type: string) => {
   anchor.download = name
   anchor.click()
   URL.revokeObjectURL(url)
-}
-
-export const toCsv = (data: AppData, activities = data.activities) => {
-  const types = new Map(data.activityTypes.map(type => [type.id, type]))
-  const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`
-  const header = ['Date', 'Hours', 'Category', 'Activity', 'Placement', 'Site', 'Supervisor', 'Notes']
-  return [header, ...[...activities].sort((a, b) => a.date.localeCompare(b.date)).map(item => [
-    item.date,
-    hoursFromMinutes(item.durationMinutes),
-    types.get(item.activityTypeId)?.category ?? '',
-    types.get(item.activityTypeId)?.name ?? '',
-    placementName(data.placements, item.placementId, ''),
-    data.placements.find(placement => placement.id === item.placementId)?.site ?? '',
-    itemName(data.dictionaries.supervisors, item.supervisorId),
-    item.notes,
-  ])].map(row => row.map(escape).join(',')).join('\n')
 }
 
 export const exportJson = (data: AppData) => JSON.stringify({

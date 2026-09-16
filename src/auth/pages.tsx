@@ -6,17 +6,33 @@ import { navigate, useAuth } from './AuthProvider'
 import { getSupabase } from '../repository/supabase'
 import { supabaseUrl, supabaseAnonKey } from '../config'
 import { safeInternalPath } from './origin'
+import { Alert } from '../components/ui/alert'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 
 const params = () => new URLSearchParams(window.location.search)
 
 function AuthLayout({ title, copy, children }: { title: string, copy: string, children?: React.ReactNode }) {
-  return <div className="auth-screen"><form className="auth-card" onSubmit={e => e.preventDefault()}>
-    <div className="brand auth-brand"><img className="brand-mark" src="/favicon.svg" width={39} height={39} alt=""/><strong>the Hours of Pee</strong></div>
-    <span className="kicker">INVITATION ONLY</span>
-    <h1>{title}</h1>
-    <p>{copy}</p>
-    {children}
-  </form></div>
+  return (
+    <div className="grid min-h-svh place-items-center bg-background p-6">
+      <Card className="w-full max-w-[440px] p-7">
+        <form className="flex flex-col gap-3" onSubmit={e => e.preventDefault()}>
+          <div className="mb-1 flex items-center gap-2.5">
+            <img className="size-[39px] rounded-xl object-cover" src="/favicon.svg" width={39} height={39} alt=""/>
+            <strong className="font-serif text-lg">the Hours of Pee</strong>
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">INVITATION ONLY</span>
+          <h1 className="m-0 font-serif text-[32px] font-semibold leading-tight">{title}</h1>
+          <p className="m-0 text-[13px] text-muted-foreground">{copy}</p>
+          {children}
+        </form>
+      </Card>
+    </div>
+  )
 }
 
 export function AuthCallbackPage() {
@@ -53,7 +69,7 @@ export function AuthCallbackPage() {
   }, [])
   if (error) {
     return <AuthLayout title="Link expired" copy={error}>
-      <button className="primary" onClick={() => navigate('/login')}>Go to sign in</button>
+      <Button onClick={() => navigate('/login')}>Go to sign in</Button>
     </AuthLayout>
   }
   return <AuthLayout title="Signing you in" copy="Please wait while we finish confirming your account." />
@@ -66,15 +82,15 @@ export function LoginPage() {
     if (session?.emailConfirmed && profile?.status === 'active') navigate('/')
   }, [session, profile])
   return <AuthLayout title="Sign in" copy="Use the email address you were invited with.">
-    <label>Email<input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)}/></label>
-    <label>Password<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)}/></label>
-    {error && <p className="auth-error">{error}</p>}
-    <button className="primary" onClick={async () => {
+    <div className="grid gap-1.5"><Label htmlFor="login-email">Email</Label><Input id="login-email" type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)}/></div>
+    <div className="grid gap-1.5"><Label htmlFor="login-password">Password</Label><Input id="login-password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)}/></div>
+    {error && <Alert variant="destructive">{error}</Alert>}
+    <Button onClick={async () => {
       const next = await signIn(email, password)
       if (next) setError(next)
       else navigate('/')
-    }}>Sign in</button>
-    <div className="auth-links"><button className="text-button" type="button" onClick={() => navigate('/forgot-password')}>Forgot password</button></div>
+    }}>Sign in</Button>
+    <div className="flex justify-between"><Button className="h-auto p-0 text-xs" variant="link" type="button" onClick={() => navigate('/forgot-password')}>Forgot password</Button></div>
   </AuthLayout>
 }
 
@@ -82,8 +98,8 @@ export function InvitePage() {
   const email = params().get('email') ?? ''
   const token = params().get('token') ?? ''
   return <AuthLayout title="Accept invitation" copy="Create a password to activate this invitation. Confirm your email before signing in.">
-    <p className="auth-note">{email || 'Open the invitation link from your email.'}</p>
-    <button className="primary" disabled={!email || !token} onClick={() => navigate(`/register?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`)}>Continue to registration</button>
+    <p className="text-xs text-muted-foreground">{email || 'Open the invitation link from your email.'}</p>
+    <Button disabled={!email || !token} onClick={() => navigate(`/register?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`)}>Continue to registration</Button>
   </AuthLayout>
 }
 
@@ -106,18 +122,18 @@ export function RegisterPage() {
     else { setMessage(body.message ?? 'Check your email to confirm the account, then sign in.'); navigate('/confirm-email') }
   }
   return <AuthLayout title="Create your account" copy="Invitation-only registration. Never store identifying client details in this workspace.">
-    <label>Email<input value={email} readOnly/></label>
-    <label>Display name<input value={displayName} onChange={e => setDisplayName(e.target.value)}/></label>
-    <label>Password<input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)}/></label>
-    {error && <p className="auth-error">{error}</p>}
-    {message && <p className="auth-note">{message}</p>}
-    <button className="primary" onClick={() => void submit()}>Create account</button>
+    <div className="grid gap-1.5"><Label htmlFor="register-email">Email</Label><Input id="register-email" value={email} readOnly/></div>
+    <div className="grid gap-1.5"><Label htmlFor="register-name">Display name</Label><Input id="register-name" value={displayName} onChange={e => setDisplayName(e.target.value)}/></div>
+    <div className="grid gap-1.5"><Label htmlFor="register-password">Password</Label><Input id="register-password" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)}/></div>
+    {error && <Alert variant="destructive">{error}</Alert>}
+    {message && <p className="text-xs text-muted-foreground">{message}</p>}
+    <Button onClick={() => void submit()}>Create account</Button>
   </AuthLayout>
 }
 
 export function ConfirmEmailPage() {
   return <AuthLayout title="Confirm your email" copy="Check your inbox, then return here to sign in.">
-    <button className="primary" onClick={() => navigate('/login')}>Go to sign in</button>
+    <Button onClick={() => navigate('/login')}>Go to sign in</Button>
   </AuthLayout>
 }
 
@@ -125,9 +141,9 @@ export function ForgotPasswordPage() {
   const { requestReset } = useAuth()
   const [email, setEmail] = useState(''); const [message, setMessage] = useState('')
   return <AuthLayout title="Reset password" copy="If an account exists for that address, a reset email will be sent.">
-    <label>Email<input type="email" value={email} onChange={e => setEmail(e.target.value)}/></label>
-    {message && <p className="auth-note">{message}</p>}
-    <button className="primary" onClick={async () => { await requestReset(email); setMessage('If an account exists, check your email.') }}>Send reset link</button>
+    <div className="grid gap-1.5"><Label htmlFor="forgot-email">Email</Label><Input id="forgot-email" type="email" value={email} onChange={e => setEmail(e.target.value)}/></div>
+    {message && <p className="text-xs text-muted-foreground">{message}</p>}
+    <Button onClick={async () => { await requestReset(email); setMessage('If an account exists, check your email.') }}>Send reset link</Button>
   </AuthLayout>
 }
 
@@ -135,9 +151,9 @@ export function ResetPasswordPage() {
   const { updatePassword } = useAuth()
   const [password, setPassword] = useState(''); const [error, setError] = useState('')
   return <AuthLayout title="Choose a new password" copy="This device must have opened the reset link from your email.">
-    <label>New password<input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)}/></label>
-    {error && <p className="auth-error">{error}</p>}
-    <button className="primary" onClick={async () => { const next = await updatePassword(password); if (next) setError(next); else navigate('/login') }}>Update password</button>
+    <div className="grid gap-1.5"><Label htmlFor="reset-password">New password</Label><Input id="reset-password" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)}/></div>
+    {error && <Alert variant="destructive">{error}</Alert>}
+    <Button onClick={async () => { const next = await updatePassword(password); if (next) setError(next); else navigate('/login') }}>Update password</Button>
   </AuthLayout>
 }
 
@@ -157,27 +173,27 @@ export function SetPasswordPage() {
     else navigate('/')
   }
   return <AuthLayout title="Choose your password" copy="You signed in with a one-time password. Set your own password to finish setting up this account.">
-    <p className="auth-note">{session?.email}</p>
-    <label>New password<input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)}/></label>
-    <label>Confirm password<input type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)}/></label>
-    {error && <p className="auth-error">{error}</p>}
-    <button className="primary" disabled={saving} onClick={() => void submit()}>{saving ? 'Saving…' : 'Save password and continue'}</button>
-    <div className="auth-links"><button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button></div>
+    <p className="text-xs text-muted-foreground">{session?.email}</p>
+    <div className="grid gap-1.5"><Label htmlFor="set-password">New password</Label><Input id="set-password" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)}/></div>
+    <div className="grid gap-1.5"><Label htmlFor="set-confirm">Confirm password</Label><Input id="set-confirm" type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)}/></div>
+    {error && <Alert variant="destructive">{error}</Alert>}
+    <Button disabled={saving} onClick={() => void submit()}>{saving ? 'Saving…' : 'Save password and continue'}</Button>
+    <div className="flex justify-between"><Button className="h-auto p-0 text-xs" variant="link" type="button" onClick={() => void signOut()}>Sign out</Button></div>
   </AuthLayout>
 }
 
 export function SuspendedPage() {
   const { signOut } = useAuth()
   return <AuthLayout title="Account suspended" copy="You do not have permission to access this page.">
-    <p className="auth-note">This account cannot query or change application data. Contact an administrator.</p>
-    <button className="secondary" onClick={() => void signOut()}>Sign out</button>
+    <p className="text-xs text-muted-foreground">This account cannot query or change application data. Contact an administrator.</p>
+    <Button variant="outline" onClick={() => void signOut()}>Sign out</Button>
   </AuthLayout>
 }
 
 export function AuthErrorPage() {
   const { errorMessage, signOut } = useAuth()
   return <AuthLayout title="Unable to continue" copy={errorMessage ?? 'Unable to restore your session. Check your connection and try again.'}>
-    <button className="primary" onClick={() => { void signOut(); navigate('/login') }}>Go to sign in</button>
+    <Button onClick={() => { void signOut(); navigate('/login') }}>Go to sign in</Button>
   </AuthLayout>
 }
 
@@ -197,39 +213,55 @@ export function AccountPage() {
     if (next) { setPasswordError(next); return }
     setPassword(''); setConfirm(''); setMessage('Password updated')
   }
-  return <section className="page">
-    <div className="page-heading"><div><span className="kicker">YOUR ACCOUNT</span><h1>Account &amp; security</h1><p>Manage sign-in, password, and the private copy of your data.</p></div></div>
-    <div className="settings-grid">
-      <article className="panel settings-card">
-        <div className="settings-icon"><UserCircle/></div>
-        <h2>Profile</h2>
-        <p>Signed in as {session?.email}{profile?.role === 'admin' ? ' · administrator' : ''}.</p>
-        <label className="stacked-field">Display name<input value={name} onChange={e => setName(e.target.value)}/></label>
-        <div className="button-row"><button className="primary compact" onClick={() => void updateDisplayName(name).then(() => setMessage('Name saved'))}>Save name</button></div>
-      </article>
-      <article className="panel settings-card">
-        <div className="settings-icon"><KeyRound/></div>
-        <h2>Password</h2>
-        <p>Use at least 8 characters. You stay signed in on this device after changing it.</p>
-        <label className="stacked-field">New password<input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)}/></label>
-        <label className="stacked-field">Confirm password<input type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)}/></label>
-        {passwordError && <p className="auth-error">{passwordError}</p>}
-        <div className="button-row"><button className="secondary compact" disabled={!password} onClick={() => void changePassword()}>Change password</button></div>
-      </article>
-      <article className="panel settings-card">
-        <div className="settings-icon"><LogOut/></div>
-        <h2>Session</h2>
-        <p>Sign out of this browser. Your data stays in your private account.</p>
-        <div className="button-row"><button className="secondary" onClick={() => void signOut().then(() => navigate('/login'))}>Sign out</button></div>
-      </article>
-      <article className="panel settings-card danger-card">
-        <div className="settings-icon"><Trash2/></div>
-        <h2>Delete account</h2>
-        <p>Permanently delete your login and application rows. This cannot be undone.</p>
-        <div className="button-row"><button className="danger" onClick={async () => { if (prompt('Type DELETE to remove this account.') !== 'DELETE') return; await deleteAccount(); navigate('/login') }}>Delete my account</button></div>
-      </article>
+  return <section className="mx-auto max-w-[1420px] px-4 py-6 sm:px-6 sm:py-10 lg:px-[4.2vw] lg:pb-[70px]">
+    <div className="page-heading mb-6 md:mb-8">
+      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">YOUR ACCOUNT</span>
+      <h1 className="mt-2 font-serif text-[clamp(1.75rem,4vw,3.375rem)] font-semibold leading-[0.95] tracking-tight">Account &amp; security</h1>
+      <p className="mt-2.5 m-0 text-sm text-muted-foreground">Manage sign-in, password, and the private copy of your data.</p>
     </div>
-    {message && <div className="toast" role="status">{message}</div>}
+    <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
+      <Card className="min-h-[245px]">
+        <CardHeader>
+          <div className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><UserCircle/></div>
+          <CardTitle className="mt-3">Profile</CardTitle>
+          <p className="text-xs leading-relaxed text-muted-foreground">Signed in as {session?.email}{profile?.role === 'admin' ? ' · administrator' : ''}.</p>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="grid gap-1.5"><Label htmlFor="account-name">Display name</Label><Input id="account-name" value={name} onChange={e => setName(e.target.value)}/></div>
+          <div><Button size="sm" onClick={() => void updateDisplayName(name).then(() => setMessage('Name saved'))}>Save name</Button></div>
+        </CardContent>
+      </Card>
+      <Card className="min-h-[245px]">
+        <CardHeader>
+          <div className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><KeyRound/></div>
+          <CardTitle className="mt-3">Password</CardTitle>
+          <p className="text-xs leading-relaxed text-muted-foreground">Use at least 8 characters. You stay signed in on this device after changing it.</p>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="grid gap-1.5"><Label htmlFor="account-password">New password</Label><Input id="account-password" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)}/></div>
+          <div className="grid gap-1.5"><Label htmlFor="account-confirm">Confirm password</Label><Input id="account-confirm" type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)}/></div>
+          {passwordError && <Alert variant="destructive">{passwordError}</Alert>}
+          <div><Button variant="outline" size="sm" disabled={!password} onClick={() => void changePassword()}>Change password</Button></div>
+        </CardContent>
+      </Card>
+      <Card className="min-h-[245px]">
+        <CardHeader>
+          <div className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><LogOut/></div>
+          <CardTitle className="mt-3">Session</CardTitle>
+          <p className="text-xs leading-relaxed text-muted-foreground">Sign out of this browser. Your data stays in your private account.</p>
+        </CardHeader>
+        <CardContent><Button variant="outline" onClick={() => void signOut().then(() => navigate('/login'))}>Sign out</Button></CardContent>
+      </Card>
+      <Card className="min-h-[245px] border-destructive/30">
+        <CardHeader>
+          <div className="grid size-10 place-items-center rounded-xl bg-destructive/10 text-destructive"><Trash2/></div>
+          <CardTitle className="mt-3">Delete account</CardTitle>
+          <p className="text-xs leading-relaxed text-muted-foreground">Permanently delete your login and application rows. This cannot be undone.</p>
+        </CardHeader>
+        <CardContent><Button variant="destructive" onClick={async () => { if (prompt('Type DELETE to remove this account.') !== 'DELETE') return; await deleteAccount(); navigate('/login') }}>Delete my account</Button></CardContent>
+      </Card>
+    </div>
+    {message && <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-primary px-4 py-3 text-xs text-primary-foreground shadow-lg" role="status">{message}</div>}
   </section>
 }
 
@@ -266,7 +298,6 @@ export function AdminPage() {
     setBusy(key); setMessage(''); setFailed(false)
     const { data, error } = await getSupabase().functions.invoke('create-invite', { body })
     let result = data as { ok?: boolean, emailed?: boolean, message?: string } | null
-    // supabase-js drops the body on non-2xx replies, and the function explains what an admin must fix.
     if (error) result = await functionErrorBody(error) ?? result
     setBusy('')
     if (error || !result?.ok) {
@@ -296,54 +327,72 @@ export function AdminPage() {
     setMessage(error ? GENERIC_AUTH_ERROR : 'User updated.')
     await load()
   }
-  return <section className="page">
-    <div className="page-heading"><div><span className="kicker">ADMINISTRATION</span><h1>Users &amp; invitations</h1><p>Invite people by email. Each person only ever sees their own private data.</p></div></div>
-    <article className="panel settings-card admin-invite">
-      <div className="settings-icon"><Mail/></div>
-      <h2>Invite someone</h2>
-      <p>We email a one-time password. On first sign-in they must choose their own password before the workspace opens.</p>
-      <form className="dict-add" onSubmit={e => { e.preventDefault(); void invite('create', email.trim().toLowerCase()) }}>
-        <label className="sr-only" htmlFor="invite-email">Email address to invite</label>
-        <input id="invite-email" type="email" placeholder="person@example.com" value={email} onChange={e => setEmail(e.target.value)}/>
-        <button className="primary compact" type="submit" disabled={!email.trim() || busy.startsWith('create')}>{busy.startsWith('create') ? 'Sending…' : 'Send invitation'}</button>
-      </form>
-      {message && <p className={failed ? 'auth-error' : 'auth-note'} role="status">{message}</p>}
-    </article>
-    <article className="panel table-panel">
-      <div className="panel-head"><div><span className="kicker">ACCESS</span><h2>People</h2></div><span className="count-badge">{users.length}</span></div>
-      {loading ? <div className="empty-mini">Loading people…</div> : users.length ? <div className="table-scroll"><table>
-        <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Password</th><th/></tr></thead>
-        <tbody>{users.map(user => <tr key={user.id}>
-          <td>{user.email}{user.id === session?.userId && <small>You</small>}</td>
-          <td>{user.role}</td>
-          <td><span className={`status ${user.status === 'active' ? 'confirmed' : 'rejected'}`}><i/>{user.status}</span></td>
-          <td>{user.must_change_password ? 'One-time password' : 'Set by user'}</td>
-          <td className="button-row">
-            {user.id === session?.userId ? <small>—</small> : <>
+  return <section className="mx-auto max-w-[1420px] px-4 py-6 sm:px-6 sm:py-10 lg:px-[4.2vw] lg:pb-[70px]">
+    <div className="page-heading mb-6 md:mb-8">
+      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">ADMINISTRATION</span>
+      <h1 className="mt-2 font-serif text-[clamp(1.75rem,4vw,3.375rem)] font-semibold leading-[0.95] tracking-tight">Users &amp; invitations</h1>
+      <p className="mt-2.5 m-0 text-sm text-muted-foreground">Invite people by email. Each person only ever sees their own private data.</p>
+    </div>
+    <Card className="mb-3.5">
+      <CardHeader>
+        <div className="grid size-10 place-items-center rounded-xl bg-accent text-accent-foreground"><Mail/></div>
+        <CardTitle className="mt-3">Invite someone</CardTitle>
+        <p className="text-xs leading-relaxed text-muted-foreground">We email a one-time password. On first sign-in they must choose their own password before the workspace opens.</p>
+      </CardHeader>
+      <CardContent>
+        <form className="flex flex-col gap-2 sm:flex-row" onSubmit={e => { e.preventDefault(); void invite('create', email.trim().toLowerCase()) }}>
+          <Label className="sr-only" htmlFor="invite-email">Email address to invite</Label>
+          <Input id="invite-email" type="email" placeholder="person@example.com" value={email} onChange={e => setEmail(e.target.value)}/>
+          <Button className="shrink-0" size="sm" type="submit" disabled={!email.trim() || busy.startsWith('create')}>{busy.startsWith('create') ? 'Sending…' : 'Send invitation'}</Button>
+        </form>
+        {message && <p className={failed ? 'mt-3 text-sm text-destructive' : 'mt-3 text-sm text-muted-foreground'} role="status">{message}</p>}
+      </CardContent>
+    </Card>
+    <Card className="mb-3.5 overflow-hidden p-0">
+      <CardHeader className="flex-row items-start justify-between space-y-0 p-5 pb-0">
+        <div><span className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">ACCESS</span><CardTitle className="mt-1">People</CardTitle></div>
+        <Badge variant="secondary">{users.length}</Badge>
+      </CardHeader>
+      {loading ? <p className="px-5 py-6 text-xs text-muted-foreground">Loading people…</p> : users.length ? <Table>
+        <TableHeader>
+          <TableRow><TableHead>Email</TableHead><TableHead>Role</TableHead><TableHead>Status</TableHead><TableHead>Password</TableHead><TableHead/></TableRow>
+        </TableHeader>
+        <TableBody>{users.map(user => <TableRow key={user.id}>
+          <TableCell>{user.email}{user.id === session?.userId && <small className="mt-0.5 block text-[9px] text-muted-foreground">You</small>}</TableCell>
+          <TableCell>{user.role}</TableCell>
+          <TableCell><Badge variant={user.status === 'active' ? 'secondary' : 'destructive'}>{user.status}</Badge></TableCell>
+          <TableCell>{user.must_change_password ? 'One-time password' : 'Set by user'}</TableCell>
+          <TableCell>
+            {user.id === session?.userId ? <small>—</small> : <div className="flex flex-wrap gap-1.5">
               {user.status === 'active'
-                ? <button className="secondary compact" disabled={busy === `suspend:${user.id}`} onClick={() => void act(user.id, 'suspend')}>Suspend</button>
-                : <button className="secondary compact" disabled={busy === `reactivate:${user.id}`} onClick={() => void act(user.id, 'reactivate')}>Reactivate</button>}
-              <button className="secondary compact" disabled={busy === `replace:${user.email}`} onClick={() => void invite('replace', user.email)}>Reset password</button>
-              <button className="danger-text" disabled={busy === `delete:${user.id}`} onClick={() => void act(user.id, 'delete')}>Delete</button>
-            </>}
-          </td>
-        </tr>)}</tbody>
-      </table></div> : <div className="empty-mini">No accounts yet.</div>}
-    </article>
-    <article className="panel table-panel">
-      <div className="panel-head"><div><span className="kicker">AUDIT</span><h2>Invitations</h2></div><span className="count-badge">{invites.length}</span></div>
-      {loading ? <div className="empty-mini">Loading invitations…</div> : invites.length ? <div className="table-scroll"><table>
-        <thead><tr><th>Email</th><th>Expires</th><th>Status</th><th/></tr></thead>
-        <tbody>{invites.map(row => <tr key={row.id}>
-          <td>{row.email}</td>
-          <td>{new Date(row.expires_at).toLocaleString()}</td>
-          <td>{inviteStatus(row)}</td>
-          <td className="button-row">{!row.accepted_at && !row.revoked_at && <>
-            <button className="secondary compact" disabled={busy === `replace:${row.id}`} onClick={() => void invite('replace', row.email, row.id)}>Resend</button>
-            <button className="danger-text" disabled={busy === `revoke:${row.id}`} onClick={() => void revoke(row.id)}>Revoke</button>
-          </>}</td>
-        </tr>)}</tbody>
-      </table></div> : <div className="empty-mini">No invitations sent yet.</div>}
-    </article>
+                ? <Button variant="outline" size="sm" disabled={busy === `suspend:${user.id}`} onClick={() => void act(user.id, 'suspend')}>Suspend</Button>
+                : <Button variant="outline" size="sm" disabled={busy === `reactivate:${user.id}`} onClick={() => void act(user.id, 'reactivate')}>Reactivate</Button>}
+              <Button variant="outline" size="sm" disabled={busy === `replace:${user.email}`} onClick={() => void invite('replace', user.email)}>Reset password</Button>
+              <Button variant="ghost" size="sm" className="text-destructive" disabled={busy === `delete:${user.id}`} onClick={() => void act(user.id, 'delete')}>Delete</Button>
+            </div>}
+          </TableCell>
+        </TableRow>)}</TableBody>
+      </Table> : <p className="px-5 py-6 text-xs text-muted-foreground">No accounts yet.</p>}
+    </Card>
+    <Card className="overflow-hidden p-0">
+      <CardHeader className="flex-row items-start justify-between space-y-0 p-5 pb-0">
+        <div><span className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">AUDIT</span><CardTitle className="mt-1">Invitations</CardTitle></div>
+        <Badge variant="secondary">{invites.length}</Badge>
+      </CardHeader>
+      {loading ? <p className="px-5 py-6 text-xs text-muted-foreground">Loading invitations…</p> : invites.length ? <Table>
+        <TableHeader>
+          <TableRow><TableHead>Email</TableHead><TableHead>Expires</TableHead><TableHead>Status</TableHead><TableHead/></TableRow>
+        </TableHeader>
+        <TableBody>{invites.map(row => <TableRow key={row.id}>
+          <TableCell>{row.email}</TableCell>
+          <TableCell>{new Date(row.expires_at).toLocaleString()}</TableCell>
+          <TableCell>{inviteStatus(row)}</TableCell>
+          <TableCell>{!row.accepted_at && !row.revoked_at && <div className="flex flex-wrap gap-1.5">
+            <Button variant="outline" size="sm" disabled={busy === `replace:${row.id}`} onClick={() => void invite('replace', row.email, row.id)}>Resend</Button>
+            <Button variant="ghost" size="sm" className="text-destructive" disabled={busy === `revoke:${row.id}`} onClick={() => void revoke(row.id)}>Revoke</Button>
+          </div>}</TableCell>
+        </TableRow>)}</TableBody>
+      </Table> : <p className="px-5 py-6 text-xs text-muted-foreground">No invitations sent yet.</p>}
+    </Card>
   </section>
 }

@@ -19,9 +19,9 @@ export const dictionaryMeta: { key: DictionaryKey, label: string, hint: string }
 export const CATEGORY_ORDER: ActivityCategory[] = ['direct', 'indirect', 'supervision']
 
 export const categoryMeta: Record<ActivityCategory, { label: string, hoursLabel: string, hint: string, color: string }> = {
-  direct: { label: 'Direct', hoursLabel: 'Direct hours', hint: 'Time with clients', color: '#42564b' },
-  indirect: { label: 'Indirect', hoursLabel: 'Indirect hours', hint: 'Everything else', color: '#a05d42' },
-  supervision: { label: 'Supervision', hoursLabel: 'Supervision', hint: 'Individual or group', color: '#857754' },
+  direct: { label: 'Direct', hoursLabel: 'Direct hours', hint: 'Time with clients', color: '#94B49F' },
+  indirect: { label: 'Indirect', hoursLabel: 'Indirect hours', hint: 'Everything else', color: '#ECB390' },
+  supervision: { label: 'Supervision', hoursLabel: 'Supervision', hint: 'Individual or group', color: '#CEE5D0' },
 }
 
 export const categoryLabel = (category: ActivityCategory) => categoryMeta[category].label
@@ -58,8 +58,8 @@ export const INDIRECT_KIND_DEFS = [
 ] as const
 
 export const SUPERVISION_KIND_DEFS = [
-  { id: 'supervision-individual', name: 'Individual' },
-  { id: 'supervision-group', name: 'Group' },
+  { id: 'supervision-individual', name: 'Individual Supervision' },
+  { id: 'supervision-group', name: 'Group Supervision' },
 ] as const
 
 const kind = (id: string, name: string, category: ActivityCategory): ActivityType => ({

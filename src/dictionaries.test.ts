@@ -17,7 +17,8 @@ import {
   SCHEMA_VERSION,
   setItemActive,
 } from './dictionaries'
-import { isValidBackup, migrate, seedData, toCsv, exportJson } from './data'
+import { isValidBackup, migrate, seedData, exportJson } from './data'
+import { buildTimeLogCsv, fileSlug, prettyDateRange, timeLogFileBase } from './report'
 import { totalMinutes } from './calculations'
 
 describe('dictionary helpers', () => {
@@ -64,7 +65,7 @@ describe('dictionary helpers', () => {
       'Record Keeping', 'Staff Meeting/Staff Training', 'Research/Session Prep',
       'Professional Development', 'Outreach/Community Engagement', 'Administrative Tasks',
     ])
-    expect(kindsFor('supervision').map(type => type.name)).toEqual(['Individual', 'Group'])
+    expect(kindsFor('supervision').map(type => type.name)).toEqual(['Individual Supervision', 'Group Supervision'])
   })
 
   it('blocks removing a placement that still has hours', () => {
@@ -161,13 +162,27 @@ describe('schema migration', () => {
     expect(restored.activityTypes).toEqual(seedData.activityTypes)
   })
 
-  it('exports hours, placement, and resolved names in CSV', () => {
-    const csv = toCsv(seedData, seedData.activities.filter(item => item.id === 'a1'))
-    expect(csv).toContain('"Date","Hours","Category","Activity","Placement","Site","Supervisor","Notes"')
-    expect(csv).toContain('"1.5"')
+  it('exports a time-log CSV with header metadata and no placement columns on rows', () => {
+    const csv = buildTimeLogCsv(seedData, seedData.activities.filter(item => item.id === 'a1'), {
+      traineeName: 'Kaining Liu',
+      placementName: 'Riverbank Psychotherapy',
+      supervisorName: 'Yiwen Fan',
+      from: '2026-09-14',
+      to: '2026-09-16',
+    })
+    expect(csv).toContain('Kaining Liu — Activity Summary')
+    expect(csv).toContain('Placement: Riverbank Psychotherapy')
+    expect(csv).toContain('Supervisor: Yiwen Fan')
+    expect(csv).toContain('"Date","Hours","Category","Activity","Notes"')
+    expect(csv).not.toContain('"Placement","Site","Supervisor"')
+    expect(csv).toContain('"1.50"')
     expect(csv).toContain('Individual Counseling')
-    expect(csv).toContain('Community placement')
-    expect(csv).toContain('Riverside Clinic')
-    expect(csv).toContain('Dr. Maya Chen')
+    expect(csv.split('\n').some(line => line.includes('Community placement') && line.startsWith('"20'))).toBe(false)
+  })
+
+  it('names exported files from the trainee and date range', () => {
+    expect(fileSlug('Kaining Liu')).toBe('Kaining_Liu')
+    expect(timeLogFileBase('Kaining Liu', '2026-09-14', '2026-09-16')).toBe('Kaining_Liu_TimeLog_2026-09-14_to_2026-09-16')
+    expect(prettyDateRange('2026-09-14', '2026-09-16')).toBe('September 14–16, 2026')
   })
 })
