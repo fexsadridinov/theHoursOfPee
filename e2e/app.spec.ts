@@ -50,6 +50,32 @@ test('a day on the calendar logs hours against that date', async ({ page }) => {
   await expect(page.getByText('Logged from the calendar')).toBeVisible()
 })
 
+test('a series logs the same hours on more than one day', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Log hours', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Hours', { exact: true }).fill('0.75')
+  await dialog.getByLabel('Notes').fill('Repeated supervision')
+  await dialog.getByRole('button', { name: 'Add another day' }).click()
+  await expect(dialog.getByRole('button', { name: 'Save 2 days' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Save 2 days' }).click()
+  await expect(page.getByText('2 days logged')).toBeVisible()
+  await expect(page.getByText('Repeated supervision').first()).toBeVisible()
+})
+
+test('save and add another keeps the dialog open', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Log hours', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Notes').fill('First of two')
+  await dialog.getByRole('button', { name: 'Save and add another' }).click()
+  await expect(dialog).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('Hours logged')
+  await dialog.getByLabel('Notes').fill('Second of two')
+  await dialog.getByRole('button', { name: 'Save entry' }).click()
+  await expect(page.getByText('Second of two')).toBeVisible()
+})
+
 test('an entry without hours explains itself instead of failing silently', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Log hours', exact: true }).first().click()

@@ -44,10 +44,13 @@ const rangeLabel = (start: string, end: string) => {
 }
 
 const emptyActivity = (data: AppData, date = today()): Activity => {
-  const placement = data.placements.find(item => item.active) ?? data.placements[0]
-  const typeId = firstKindId('direct')
+  const last = data.activities[0]
+  const lastType = last ? typeOf(data, last.activityTypeId) : undefined
+  const lastPlacement = last ? placementOf(data.placements, last.placementId) : undefined
+  const placement = lastPlacement ?? data.placements.find(item => item.active) ?? data.placements[0]
   return {
-    id: '', date, durationMinutes: 60, activityTypeId: typeId,
+    id: '', date, durationMinutes: last?.durationMinutes ?? 60,
+    activityTypeId: lastType?.id ?? firstKindId('direct'),
     placementId: placement?.id ?? '', supervisorId: placement?.supervisorId ?? '', notes: '', createdAt: '', updatedAt: '',
   }
 }
@@ -99,17 +102,21 @@ function App({ section }: { section?: Section }) {
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(''), 2600); return () => clearTimeout(id) }, [toast])
 
   const openNew = (date?: string) => setEditing(emptyActivity(data, date))
-  const saveActivity = async (activity: Activity) => {
+  const saveActivity = async (entries: Activity[], stayOpen = false) => {
     const now = new Date().toISOString()
-    const placement = placementOf(data.placements, activity.placementId)
-    const nextActivity = { ...activity, supervisorId: activity.supervisorId || placement?.supervisorId || '' }
-    const next: AppData = { ...data, activities: activity.id
-      ? data.activities.map(item => item.id === activity.id ? { ...nextActivity, updatedAt: now } : item)
-      : [{ ...nextActivity, id: uid(), createdAt: now, updatedAt: now }, ...data.activities],
+    let activities = data.activities
+    for (const activity of entries) {
+      const placement = placementOf(data.placements, activity.placementId)
+      const nextActivity = { ...activity, supervisorId: activity.supervisorId || placement?.supervisorId || '' }
+      activities = nextActivity.id
+        ? activities.map(item => item.id === nextActivity.id ? { ...nextActivity, updatedAt: now } : item)
+        : [{ ...nextActivity, id: uid(), createdAt: now, updatedAt: now }, ...activities]
     }
-    const error = await commit(next)
+    const error = await commit({ ...data, activities })
     if (error) return error
-    setEditing(null); setToast(activity.id ? 'Hours updated' : 'Hours logged')
+    if (!stayOpen) setEditing(null)
+    const count = entries.length
+    setToast(entries[0]?.id ? 'Hours updated' : count > 1 ? `${count} days logged` : 'Hours logged')
     return null
   }
   const removeActivity = async (id: string) => {
@@ -648,11 +655,11 @@ const QUICK_HOURS = [0.5, 1, 1.5, 2, 3, 4, 8]
 
 function ActivityDialog({ activity, data, close, save, remove, openPlacements }: {
   activity: Activity, data: AppData, close: () => void,
-  save: (activity: Activity) => Promise<string | null>,
+  save: (entries: Activity[], stayOpen?: boolean) => Promise<string | null>,
   remove: (id: string) => Promise<string | null>, openPlacements: () => void,
 }) {
   const initialType = typeOf(data, activity.activityTypeId)
-  const [date, setDate] = useState(activity.date || today())
+  const [dates, setDates] = useState([activity.date || today()])
   const [hours, setHours] = useState(String(hoursFromMinutes(activity.durationMinutes) || 1))
   const [category, setCategory] = useState<ActivityCategory>(initialType?.category ?? 'direct')
   const [activityTypeId, setActivityTypeId] = useState(initialType?.id ?? firstKindId('direct'))
@@ -664,6 +671,19 @@ function ActivityDialog({ activity, data, close, save, remove, openPlacements }:
   const kindOptions = kindsFor(category)
   const placements = activeItems(data.placements, placementId)
   const selectedPlacement = placementOf(data.placements, placementId)
+  const editing = Boolean(activity.id)
+  const latestDate = dates[dates.length - 1] || today()
+  const series = !editing && dates.length > 1
+
+  const addDate = (next: string) => {
+    if (!next) return
+    setDates(current => current.includes(next) ? current : [...current, next].sort())
+    setError('')
+  }
+  const setOneDate = (next: string) => { if (next) { setDates([next]); setError('') } }
+  const removeDate = (value: string) => {
+    setDates(current => current.length <= 1 ? current : current.filter(item => item !== value))
+  }
 
   const chooseCategory = (next: ActivityCategory) => {
     setCategory(next)
@@ -672,43 +692,61 @@ function ActivityDialog({ activity, data, close, save, remove, openPlacements }:
   }
 
   const problem = () => {
-    if (!date) return 'Choose the date you worked.'
+    if (!dates.length) return 'Choose at least one date.'
     if (!placements.length) return 'Add a placement before logging hours.'
     if (!placementId) return 'Choose the placement these hours belong to.'
     if (!activityTypeId) return `Choose a ${category} activity.`
     if (parsedHours === null) return 'Enter how many hours you worked, for example 1.5.'
     if (parsedHours > 24) return 'A single entry cannot be longer than 24 hours.'
+    if (dates.length > 31) return 'Log at most 31 days at a time.'
     return ''
   }
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault()
+  const entriesFor = (days: string[]): Activity[] => days.map(date => ({
+    ...activity, id: editing ? activity.id : '', date, durationMinutes: minutesFromHours(parsedHours!),
+    activityTypeId, placementId, supervisorId: selectedPlacement?.supervisorId ?? '', notes: notes.trim(),
+  }))
+
+  const submit = async (stayOpen = false) => {
     const found = problem()
     setError(found)
     if (found) return
     setSaving(true)
-    const next = await save({
-      ...activity, date, durationMinutes: minutesFromHours(parsedHours!), activityTypeId,
-      placementId, supervisorId: selectedPlacement?.supervisorId ?? '', notes: notes.trim(),
-    })
+    const next = await save(entriesFor(dates), stayOpen)
     setSaving(false)
-    if (next) setError(next)
+    if (next) { setError(next); return }
+    if (stayOpen) setDates([shiftDate(latestDate, 1)])
   }
 
   return <div className="modal-layer" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !saving) close() }}>
-    <form className="modal" onSubmit={e => void submit(e)} role="dialog" aria-modal="true" aria-labelledby="activity-title">
+    <form className="modal" onSubmit={e => { e.preventDefault(); void submit(false) }} role="dialog" aria-modal="true" aria-labelledby="activity-title">
       <div className="modal-head">
-        <div><span className="kicker">{activity.id ? 'EDIT ENTRY' : 'NEW ENTRY'}</span><h2 id="activity-title">{activity.id ? 'Edit hours' : 'Log your hours'}</h2></div>
+        <div><span className="kicker">{editing ? 'EDIT ENTRY' : series ? 'NEW SERIES' : 'NEW ENTRY'}</span><h2 id="activity-title">{editing ? 'Edit hours' : 'Log your hours'}</h2></div>
         <button type="button" className="icon-button" aria-label="Close" disabled={saving} onClick={close}><X/></button>
       </div>
       <div className="form-grid">
-        <label className="full">Date
-          <input type="date" value={date} onChange={e => { setDate(e.target.value); setError('') }}/>
+        <label className="full">{editing || dates.length === 1 ? 'Date' : 'Dates'}
+          <input type="date" aria-label={editing || dates.length === 1 ? 'Date' : 'Add a date'} value={latestDate} onChange={e => {
+            const next = e.target.value
+            if (!next) return
+            if (editing || dates.length <= 1) setOneDate(next)
+            else addDate(next)
+          }}/>
           <div className="hour-chips date-chips">
-            <button type="button" className={`chip ${date === today() ? 'on' : ''}`} onClick={() => { setDate(today()); setError('') }}>Today</button>
-            <button type="button" className="chip" onClick={() => { setDate(shiftDate(date || today(), -1)); setError('') }}>Previous day</button>
-            <button type="button" className="chip" onClick={() => { setDate(shiftDate(date || today(), 1)); setError('') }}>Next day</button>
+            <button type="button" className={`chip ${dates.includes(today()) ? 'on' : ''}`} onClick={() => { dates.length > 1 ? addDate(today()) : setOneDate(today()) }}>Today</button>
+            <button type="button" className="chip" onClick={() => { const next = shiftDate(latestDate, -1); dates.length > 1 ? addDate(next) : setOneDate(next) }}>Previous day</button>
+            <button type="button" className="chip" onClick={() => { const next = shiftDate(latestDate, 1); dates.length > 1 ? addDate(next) : setOneDate(next) }}>Next day</button>
+            {!editing && <button type="button" className="chip" onClick={() => addDate(shiftDate(latestDate, 1))}>Add another day</button>}
           </div>
+          {series && <>
+            <div className="series-dates" aria-label="Days in this series">
+              {dates.map(value => <span className="series-chip" key={value}>
+                {dateLabel(value, { day: 'numeric', month: 'short' })}
+                <button type="button" aria-label={`Remove ${dateLabel(value, { day: 'numeric', month: 'short' })}`} onClick={() => removeDate(value)}><X size={12}/></button>
+              </span>)}
+            </div>
+            <small>Same hours, activity, placement, and notes will be saved on each day.</small>
+          </>}
         </label>
         <label className="full">Hours
           <input aria-label="Hours" type="text" inputMode="decimal" value={hours} onChange={e => { setHours(e.target.value); setError('') }}/>
@@ -745,10 +783,11 @@ function ActivityDialog({ activity, data, close, save, remove, openPlacements }:
       </div>
       {error && <p className="form-error" role="alert">{error}{error.includes('placement') && <> <button type="button" className="text-button" onClick={openPlacements}>Open Placement</button></>}</p>}
       <div className="modal-actions">
-        {activity.id && <button type="button" className="danger-text" disabled={saving} onClick={() => void remove(activity.id).then(next => { if (next) setError(next) })}><Trash2 size={17}/> Delete</button>}
+        {editing && <button type="button" className="danger-text" disabled={saving} onClick={() => void remove(activity.id).then(next => { if (next) setError(next) })}><Trash2 size={17}/> Delete</button>}
         <span/>
         <button type="button" className="secondary" disabled={saving} onClick={close}>Cancel</button>
-        <button className="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : activity.id ? 'Save changes' : 'Save entry'}</button>
+        {!editing && <button type="button" className="secondary" disabled={saving} onClick={() => void submit(true)}>{saving ? 'Saving…' : 'Save and add another'}</button>}
+        <button className="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : dates.length > 1 ? `Save ${dates.length} days` : 'Save entry'}</button>
       </div>
     </form>
   </div>
