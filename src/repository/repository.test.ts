@@ -63,6 +63,6 @@ describe('a brand new online workspace', () => {
     expect(empty.schemaVersion).toBe(SCHEMA_VERSION)
     // Without seeded types the activity dropdown is empty and nothing can be saved.
     expect(empty.placements).toEqual([])
-    expect(new Set(empty.activityTypes.map(type => type.category))).toEqual(new Set(['direct', 'indirect']))
+    expect(new Set(empty.activityTypes.map(type => type.category))).toEqual(new Set(['direct', 'indirect', 'supervision']))
   })
 })

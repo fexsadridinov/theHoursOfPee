@@ -23,7 +23,7 @@ export const seedData: AppData = {
   activities: [
     activity('a1', 0, 1.5, 'direct-individual', 'place-riverside', 'sup-maya', 'Individual session'),
     activity('a2', 0, 0.5, 'indirect-records', 'place-riverside', 'sup-maya', 'Session notes'),
-    activity('a3', -1, 1, 'indirect-supervision', 'place-school', 'sup-jordan', 'Weekly supervision'),
+    activity('a3', -1, 1, 'supervision-individual', 'place-school', 'sup-jordan', 'Weekly supervision'),
     activity('a4', -2, 2, 'direct-group', 'place-school', 'sup-jordan', 'Group workshop'),
     activity('a5', -3, 0.75, 'indirect-research', 'place-riverside', '', 'Assessment write-up'),
     activity('a6', -7, 3, 'indirect-outreach', 'place-riverside', 'sup-maya', 'Community outreach'),
@@ -39,7 +39,7 @@ export const isValidBackup = (value: unknown): value is {
 } => {
   if (!value || typeof value !== 'object') return false
   const data = value as AppData
-  return [1, 2, 3, SCHEMA_VERSION].includes(data.schemaVersion) && Array.isArray(data.activities)
+  return [1, 2, 3, 4, SCHEMA_VERSION].includes(data.schemaVersion) && Array.isArray(data.activities)
 }
 
 export const migrate = (raw: unknown): AppData => {

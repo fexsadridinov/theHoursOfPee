@@ -13,7 +13,7 @@ test('logging hours works with nothing but the prefilled defaults', async ({ pag
   await expect(page.getByText('1.5 h').first()).toBeVisible()
 })
 
-test('direct and indirect hours summon the matching activity dropdown', async ({ page }) => {
+test('direct, indirect, and supervision hours summon the matching activity dropdown', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Log hours', exact: true }).first().click()
   const dialog = page.getByRole('dialog')
@@ -26,6 +26,12 @@ test('direct and indirect hours summon the matching activity dropdown', async ({
   const indirect = dialog.getByLabel('Indirect activity')
   await expect(indirect.locator('option', { hasText: 'Record Keeping' })).toHaveCount(1)
   await expect(indirect.locator('option', { hasText: 'Administrative Tasks' })).toHaveCount(1)
+  await expect(indirect.locator('option', { hasText: 'Supervision' })).toHaveCount(0)
+  await dialog.getByRole('radio', { name: /^Supervision/ }).click()
+  const supervision = dialog.getByLabel('Supervision', { exact: true })
+  await expect(supervision.locator('option', { hasText: 'Individual' })).toHaveCount(1)
+  await expect(supervision.locator('option', { hasText: 'Group' })).toHaveCount(1)
+  await dialog.getByRole('radio', { name: /Indirect hours/ }).click()
   await dialog.getByLabel('Hours', { exact: true }).fill('2')
   await dialog.getByLabel('Notes').fill('Indirect write-up')
   await dialog.getByRole('button', { name: 'Save entry' }).click()

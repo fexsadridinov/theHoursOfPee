@@ -55,15 +55,16 @@ describe('dictionary helpers', () => {
 
   it('never lets people add or remove the fixed activity catalog', () => {
     expect(canRemoveActivityType(seedData, 'direct-individual')).toBe(false)
-    expect(catalogTypes()).toHaveLength(13)
+    expect(catalogTypes()).toHaveLength(14)
     expect(kindsFor('direct').map(type => type.name)).toEqual([
       'Intake Interviewing/Assessment', 'Individual Counseling', 'Group Counseling',
       'Consultation', 'Crisis Intervention', 'Other Communication',
     ])
     expect(kindsFor('indirect').map(type => type.name)).toEqual([
-      'Record Keeping', 'Supervision', 'Staff Meeting/Staff Training', 'Research/Session Prep',
+      'Record Keeping', 'Staff Meeting/Staff Training', 'Research/Session Prep',
       'Professional Development', 'Outreach/Community Engagement', 'Administrative Tasks',
     ])
+    expect(kindsFor('supervision').map(type => type.name)).toEqual(['Individual', 'Group'])
   })
 
   it('blocks removing a placement that still has hours', () => {
@@ -112,7 +113,7 @@ describe('schema migration', () => {
       id: 'a1', date: '2026-09-14', durationMinutes: 90, activityTypeId: 'direct-individual',
       placementId: 'exp-clinic', supervisorId: 'sup-maya', notes: 'Individual session', createdAt: '', updatedAt: '',
     })
-    expect(next.activities[1].activityTypeId).toBe('indirect-supervision')
+    expect(next.activities[1].activityTypeId).toBe('supervision-individual')
     expect(Object.keys(next.dictionaries)).toEqual(['supervisors'])
     expect('experiences' in next).toBe(false)
     expect(totalMinutes(next.activities)).toBe(120)
@@ -124,6 +125,7 @@ describe('schema migration', () => {
     expect(next.activities[1].supervisorId).toBeTruthy()
     expect(next.activityTypes).toEqual(defaultActivityTypes())
     expect(resolveKindId('type-direct')).toBe('direct-individual')
+    expect(resolveKindId('indirect-supervision')).toBe('supervision-individual')
     expect(resolveKindId('mystery', [{ id: 'mystery', name: 'Intake interview', category: 'direct' }])).toBe('direct-intake')
   })
 
@@ -148,7 +150,8 @@ describe('schema migration', () => {
   it('replaces leftover custom types with the catalog', () => {
     const next = ensureRequiredTypes([{ id: 'old-direct', name: 'Direct practice', color: '#42564b', defaultMinutes: 60, category: 'direct', active: true }])
     expect(next.map(type => type.category).filter(category => category === 'direct')).toHaveLength(6)
-    expect(next.map(type => type.category).filter(category => category === 'indirect')).toHaveLength(7)
+    expect(next.map(type => type.category).filter(category => category === 'indirect')).toHaveLength(6)
+    expect(next.map(type => type.category).filter(category => category === 'supervision')).toHaveLength(2)
   })
 
   it('round-trips a JSON export through the importer', () => {

@@ -37,9 +37,12 @@ describe('hour calculations', () => {
     expect(parseHours('hours')).toBeNull()
   })
 
-  it('splits hours into direct and indirect', () => {
-    const split = categoryMinutes([item(60, 'direct-individual'), item(30, 'indirect-records'), item(30, 'unknown-type')], catalogTypes())
-    expect(split).toEqual({ direct: 60, indirect: 60 })
+  it('splits hours into direct, indirect, and supervision', () => {
+    const split = categoryMinutes([
+      item(60, 'direct-individual'), item(30, 'indirect-records'),
+      item(45, 'supervision-individual'), item(30, 'unknown-type'),
+    ], catalogTypes())
+    expect(split).toEqual({ direct: 60, indirect: 60, supervision: 45 })
   })
 
   it('groups by any key', () => {

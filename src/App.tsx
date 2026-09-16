@@ -17,6 +17,7 @@ import {
   activeItems, canRemoveDictionaryItem, canRemovePlacement, dictionaryUsage,
   emptyPlacement, findOrCreateNamed, firstKindId, itemName, kindsFor,
   placementName, placementOf, removeItem, renameItem, resolveKindId, setItemActive,
+  activitySelectLabel, CATEGORY_ORDER, categoryLabel, categoryMeta,
 } from './dictionaries'
 import type { Activity, ActivityCategory, AppData, DictionaryItem, Placement } from './types'
 
@@ -204,7 +205,8 @@ function Dashboard({ data, openNew, edit, go }: { data: AppData, openNew: () => 
     return { label: dateLabel(iso(start), { month: 'short', day: 'numeric' }), minutes: sumMinutes(activities, a => inDateRange(a.date, iso(start), iso(end))) }
   })
   const maxWeek = Math.max(...weekBars.map(bar => bar.minutes), 1)
-  const directShare = total ? (byCategory.direct ?? 0) / total * 100 : 0
+  const directPct = total ? (byCategory.direct ?? 0) / total * 100 : 0
+  const indirectPct = total ? (byCategory.indirect ?? 0) / total * 100 : 0
 
   return <section className="page">
     <PageHeading kicker="Your progress" title="Your hours at a glance." copy="A calm view of the time you have logged."/>
@@ -222,12 +224,11 @@ function Dashboard({ data, openNew, edit, go }: { data: AppData, openNew: () => 
         </div>
       </article>
       <article className="panel">
-        <div className="panel-head"><div><span className="kicker">BREAKDOWN</span><h2>Direct & indirect</h2></div></div>
+        <div className="panel-head"><div><span className="kicker">BREAKDOWN</span><h2>By category</h2></div></div>
         <div className="donut-row">
-          <div className="donut" style={{ background: `conic-gradient(#42564b 0 ${directShare}%, #b56f53 0)` }}><div><strong>{formatHours(total)}</strong><span>total</span></div></div>
+          <div className="donut" style={{ background: `conic-gradient(${categoryMeta.direct.color} 0 ${directPct}%, ${categoryMeta.indirect.color} 0 ${directPct + indirectPct}%, ${categoryMeta.supervision.color} 0)` }}><div><strong>{formatHours(total)}</strong><span>total</span></div></div>
           <div className="donut-legend">
-            <div><i className="dot d0"/><span>Direct</span><strong>{formatHours(byCategory.direct ?? 0)}</strong></div>
-            <div><i className="dot d1"/><span>Indirect</span><strong>{formatHours(byCategory.indirect ?? 0)}</strong></div>
+            {CATEGORY_ORDER.map((category, index) => <div key={category}><i className={`dot d${index}`}/><span>{categoryLabel(category)}</span><strong>{formatHours(byCategory[category] ?? 0)}</strong></div>)}
           </div>
         </div>
       </article>
@@ -324,9 +325,10 @@ function Placements({ data, setData, edit, openNew, notify, goReports }: {
         </div>}
       />
       <div className="metric-grid placement-metrics">
-        <Metric label="Direct" value={formatHours(split.direct ?? 0)} hint="Time with clients" tone="sage"/>
-        <Metric label="Indirect" value={formatHours(split.indirect ?? 0)} hint="Everything else" tone="clay"/>
-        <Metric label="Total" value={formatHours(sumMinutes(rows))} hint={`${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}`} tone="gold"/>
+        <Metric label="Direct" value={formatHours(split.direct ?? 0)} hint={categoryMeta.direct.hint} tone="sage"/>
+        <Metric label="Indirect" value={formatHours(split.indirect ?? 0)} hint={categoryMeta.indirect.hint} tone="clay"/>
+        <Metric label="Supervision" value={formatHours(split.supervision ?? 0)} hint={categoryMeta.supervision.hint} tone="gold"/>
+        <Metric label="Total" value={formatHours(sumMinutes(rows))} hint={`${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}`} tone="blue"/>
       </div>
       <article className="panel table-panel">
         <div className="filterbar"><strong className="table-title">Hours at this site</strong></div>
@@ -352,6 +354,7 @@ function Placements({ data, setData, edit, openNew, notify, goReports }: {
           <div className="placement-hours">
             <div><span>Direct</span><strong>{formatHoursFixed(split.direct ?? 0)}</strong></div>
             <div><span>Indirect</span><strong>{formatHoursFixed(split.indirect ?? 0)}</strong></div>
+            <div><span>Supervision</span><strong>{formatHoursFixed(split.supervision ?? 0)}</strong></div>
             <div><span>Total</span><strong>{formatHoursFixed(sumMinutes(rows))}</strong></div>
           </div>
           <div className="button-row">
@@ -377,7 +380,7 @@ function HoursTable({ activities, data, edit }: { activities: Activity[], data: 
     <thead><tr><th>Date</th><th>Activity</th><th>Hours</th><th>Notes</th><th/></tr></thead>
     <tbody>{activities.map(a => <tr key={a.id}>
       <td><strong>{dateLabel(a.date, { day: '2-digit', month: 'short', year: 'numeric' })}</strong></td>
-      <td><span className="type-cell"><i style={{ background: typeOf(data, a.activityTypeId)?.color }}/><span>{typeName(data, a.activityTypeId)}<small>{typeCategory(data, a.activityTypeId) === 'direct' ? 'Direct' : 'Indirect'}</small></span></span></td>
+      <td><span className="type-cell"><i style={{ background: typeOf(data, a.activityTypeId)?.color }}/><span>{typeName(data, a.activityTypeId)}<small>{categoryLabel(typeCategory(data, a.activityTypeId))}</small></span></span></td>
       <td><strong>{formatHours(a.durationMinutes)}</strong></td>
       <td className="notes-cell">{a.notes || '—'}</td>
       <td><button className="icon-button" aria-label={`Edit entry on ${a.date}`} onClick={() => edit(a)}><MoreHorizontal size={19}/></button></td>
@@ -523,7 +526,7 @@ function Reports({ data, generatedFor, placementId, setPlacementId }: {
 
       <h2>Hours by Placement</h2>
       <table className="summary-table">
-        <thead><tr><th>Placement</th><th className="num">Direct</th><th className="num">Indirect</th><th className="num">Total</th></tr></thead>
+        <thead><tr><th>Placement</th><th className="num">Direct</th><th className="num">Indirect</th><th className="num">Supervision</th><th className="num">Total</th></tr></thead>
         <tbody>
           {(placements.length ? placements : [{ id: '', name: 'Unassigned', site: '', supervisorId: '', startDate: '', endDate: '', active: true }]).map(placement => {
             const rows = filtered.filter(item => (placement.id ? item.placementId === placement.id : !item.placementId))
@@ -537,6 +540,7 @@ function Reports({ data, generatedFor, placementId, setPlacementId }: {
               </td>
               <td className="num">{formatHoursFixed(split.direct ?? 0)}</td>
               <td className="num">{formatHoursFixed(split.indirect ?? 0)}</td>
+              <td className="num">{formatHoursFixed(split.supervision ?? 0)}</td>
               <td className="num">{formatHoursFixed(sumMinutes(rows))}</td>
             </tr>
           })}
@@ -547,6 +551,7 @@ function Reports({ data, generatedFor, placementId, setPlacementId }: {
               <td className="placement-cell"><strong>Unassigned</strong><small>No placement selected</small></td>
               <td className="num">{formatHoursFixed(split.direct ?? 0)}</td>
               <td className="num">{formatHoursFixed(split.indirect ?? 0)}</td>
+              <td className="num">{formatHoursFixed(split.supervision ?? 0)}</td>
               <td className="num">{formatHoursFixed(sumMinutes(rows))}</td>
             </tr>
           })()}
@@ -555,22 +560,23 @@ function Reports({ data, generatedFor, placementId, setPlacementId }: {
           <td>Totals</td>
           <td className="num">{formatHoursFixed(categoryMinutes(filtered, data.activityTypes).direct ?? 0)}</td>
           <td className="num">{formatHoursFixed(categoryMinutes(filtered, data.activityTypes).indirect ?? 0)}</td>
+          <td className="num">{formatHoursFixed(categoryMinutes(filtered, data.activityTypes).supervision ?? 0)}</td>
           <td className="num">{formatHoursFixed(sumMinutes(filtered))}</td>
         </tr></tfoot>
       </table>
 
       <h2>Hours by Type</h2>
       <div className="type-columns">
-        {(['direct', 'indirect'] as const).map(category => {
+        {CATEGORY_ORDER.map(category => {
           const kinds = kindsFor(category)
           const rows = kinds.map(kind => ({ kind, minutes: sumMinutes(filtered, item => item.activityTypeId === kind.id) }))
           const total = rows.reduce((sum, row) => sum + row.minutes, 0)
           return <div key={category}>
             <table className="summary-table">
-              <thead><tr><th>{category === 'direct' ? 'Direct' : 'Indirect'}</th><th className="num">Hours</th></tr></thead>
+              <thead><tr><th>{categoryLabel(category)}</th><th className="num">Hours</th></tr></thead>
               <tbody>
                 {rows.filter(row => row.minutes > 0).map(row => <tr key={row.kind.id}><td>{row.kind.name}</td><td className="num">{formatHoursFixed(row.minutes)}</td></tr>)}
-                {!rows.some(row => row.minutes > 0) && <tr><td colSpan={2}>No {category} hours in this range.</td></tr>}
+                {!rows.some(row => row.minutes > 0) && <tr><td colSpan={2}>No {categoryLabel(category).toLowerCase()} hours in this range.</td></tr>}
               </tbody>
               <tfoot><tr><td>Total</td><td className="num">{formatHoursFixed(total)}</td></tr></tfoot>
             </table>
@@ -622,7 +628,7 @@ function SettingsPage({ data, setData, notify }: { data: AppData, setData: React
       <article className="panel settings-card privacy-card"><div className="settings-icon"><Users/></div><h2>Privacy by design</h2><p>Keep notes free of names, addresses, medical record numbers, or any other identifying details.</p>
         <div className="privacy-lines"><span><Check/> Your rows are visible only to you</span><span><Check/> No analytics or tracking</span><span><Check/> Export or delete at any time</span></div>
       </article>
-      <article className="panel settings-card"><div className="settings-icon"><Briefcase/></div><h2>Activity types</h2><p>Direct and indirect hours use a fixed list. You cannot add custom types. Manage jobs, sites, and supervisors on the Placement page.</p></article>
+      <article className="panel settings-card"><div className="settings-icon"><Briefcase/></div><h2>Activity types</h2><p>Direct, indirect, and supervision hours use a fixed list. You cannot add custom types. Manage jobs, sites, and supervisors on the Placement page.</p></article>
       <article className="panel settings-card danger-card"><div className="settings-icon"><Trash2/></div><h2>Reset workspace</h2><p>Remove every entry and start over. Download a backup first if you may need this data.</p><button className="danger" onClick={reset}>Delete all data</button></article>
     </div>
   </section>
@@ -708,7 +714,7 @@ function ActivityDialog({ activity, data, close, save, remove, openPlacements }:
     if (!draft.activity.date) return 'Choose the date you worked.'
     if (!data.placements.length) return 'Add a placement before logging hours.'
     if (!draft.activity.placementId) return 'Choose the placement these hours belong to.'
-    if (!draft.activity.activityTypeId) return 'Choose a Direct or Indirect activity.'
+    if (!draft.activity.activityTypeId) return 'Choose a Direct, Indirect, or Supervision activity.'
     const hours = parseHours(draft.hours)
     if (hours === null) return 'Enter how many hours you worked, for example 1.5.'
     if (hours > 24) return 'A single entry cannot be longer than 24 hours.'
@@ -806,18 +812,19 @@ function ActivityDialog({ activity, data, close, save, remove, openPlacements }:
             </label>
             <div className="field full"><span>Activity type</span>
               <div className="type-choice" role="radiogroup" aria-label="Activity type">
-                {(['direct', 'indirect'] as const).map(next => {
+                {CATEGORY_ORDER.map(next => {
                   const on = category === next
+                  const meta = categoryMeta[next]
                   return <button type="button" key={next} role="radio" aria-checked={on} className={`type-choice-btn ${on ? 'on' : ''}`} onClick={() => chooseCategory(next)}>
-                    <i style={{ background: next === 'direct' ? '#42564b' : '#a05d42' }}/>
-                    <strong>{next === 'direct' ? 'Direct hours' : 'Indirect hours'}</strong>
-                    <small>{next === 'direct' ? 'Time with clients' : 'Everything else'}</small>
+                    <i style={{ background: meta.color }}/>
+                    <strong>{meta.hoursLabel}</strong>
+                    <small>{meta.hint}</small>
                   </button>
                 })}
               </div>
             </div>
-            <label className="full">{category === 'direct' ? 'Direct activity' : 'Indirect activity'}
-              <select aria-label={category === 'direct' ? 'Direct activity' : 'Indirect activity'} value={selected.activity.activityTypeId} onChange={e => patch({ activityTypeId: e.target.value })}>
+            <label className="full">{activitySelectLabel(category)}
+              <select aria-label={activitySelectLabel(category)} value={selected.activity.activityTypeId} onChange={e => patch({ activityTypeId: e.target.value })}>
                 {kindOptions.map(kind => <option key={kind.id} value={kind.id}>{kind.name}</option>)}
               </select>
             </label>

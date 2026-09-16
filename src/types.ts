@@ -1,4 +1,4 @@
-export type ActivityCategory = 'direct' | 'indirect'
+export type ActivityCategory = 'direct' | 'indirect' | 'supervision'
 
 export interface DictionaryItem {
   id: string

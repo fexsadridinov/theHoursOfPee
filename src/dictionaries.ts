@@ -10,11 +10,23 @@ import type {
   Placement,
 } from './types'
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 export const dictionaryMeta: { key: DictionaryKey, label: string, hint: string }[] = [
   { key: 'supervisors', label: 'Supervisors', hint: 'People who review or sign off on a placement. Add them here, not while logging hours.' },
 ]
+
+export const CATEGORY_ORDER: ActivityCategory[] = ['direct', 'indirect', 'supervision']
+
+export const categoryMeta: Record<ActivityCategory, { label: string, hoursLabel: string, hint: string, color: string }> = {
+  direct: { label: 'Direct', hoursLabel: 'Direct hours', hint: 'Time with clients', color: '#42564b' },
+  indirect: { label: 'Indirect', hoursLabel: 'Indirect hours', hint: 'Everything else', color: '#a05d42' },
+  supervision: { label: 'Supervision', hoursLabel: 'Supervision', hint: 'Individual or group', color: '#857754' },
+}
+
+export const categoryLabel = (category: ActivityCategory) => categoryMeta[category].label
+export const activitySelectLabel = (category: ActivityCategory) =>
+  category === 'supervision' ? 'Supervision' : `${categoryMeta[category].label} activity`
 
 const item = (id: string, name: string): DictionaryItem => ({ id, name, active: true })
 
@@ -38,7 +50,6 @@ export const DIRECT_KIND_DEFS = [
 
 export const INDIRECT_KIND_DEFS = [
   { id: 'indirect-records', name: 'Record Keeping' },
-  { id: 'indirect-supervision', name: 'Supervision' },
   { id: 'indirect-staff', name: 'Staff Meeting/Staff Training' },
   { id: 'indirect-research', name: 'Research/Session Prep' },
   { id: 'indirect-development', name: 'Professional Development' },
@@ -46,15 +57,21 @@ export const INDIRECT_KIND_DEFS = [
   { id: 'indirect-admin', name: 'Administrative Tasks' },
 ] as const
 
+export const SUPERVISION_KIND_DEFS = [
+  { id: 'supervision-individual', name: 'Individual' },
+  { id: 'supervision-group', name: 'Group' },
+] as const
+
 const kind = (id: string, name: string, category: ActivityCategory): ActivityType => ({
   id, name, category, defaultMinutes: 60, active: true,
-  color: category === 'direct' ? '#42564b' : '#a05d42',
+  color: categoryMeta[category].color,
 })
 
-// Fixed catalog. People choose Direct or Indirect, then one of these — they cannot add their own.
+// Fixed catalog. People choose Direct, Indirect, or Supervision, then one of these — they cannot add their own.
 export const catalogTypes = (): ActivityType[] => [
   ...DIRECT_KIND_DEFS.map(item => kind(item.id, item.name, 'direct')),
   ...INDIRECT_KIND_DEFS.map(item => kind(item.id, item.name, 'indirect')),
+  ...SUPERVISION_KIND_DEFS.map(item => kind(item.id, item.name, 'supervision')),
 ]
 
 export const defaultActivityTypes = catalogTypes
@@ -67,23 +84,27 @@ const KIND_IDS = new Set(catalogTypes().map(type => type.id))
 const KIND_ALIASES: Record<string, string> = {
   'type-direct': 'direct-individual',
   'type-indirect': 'indirect-records',
-  'type-supervision': 'indirect-supervision',
+  'type-supervision': 'supervision-individual',
+  'type-indirect-supervision': 'supervision-individual',
+  'indirect-supervision': 'supervision-individual',
 }
 
 const KIND_NAME_HINTS: [RegExp, string][] = [
   [/intake/i, 'direct-intake'],
-  [/individual/i, 'direct-individual'],
-  [/group/i, 'direct-group'],
+  [/individual counseling/i, 'direct-individual'],
+  [/group counseling/i, 'direct-group'],
   [/consult/i, 'direct-consultation'],
   [/crisis/i, 'direct-crisis'],
   [/communication/i, 'direct-other'],
   [/record/i, 'indirect-records'],
-  [/supervis/i, 'indirect-supervision'],
+  [/supervis/i, 'supervision-individual'],
   [/staff|training/i, 'indirect-staff'],
   [/research|prep/i, 'indirect-research'],
   [/professional|development/i, 'indirect-development'],
   [/outreach|community/i, 'indirect-outreach'],
   [/admin/i, 'indirect-admin'],
+  [/individual/i, 'direct-individual'],
+  [/group/i, 'direct-group'],
 ]
 
 export const resolveKindId = (id: string, types: { id?: string, name?: string, category?: string }[] = []) => {
@@ -96,7 +117,8 @@ export const resolveKindId = (id: string, types: { id?: string, name?: string, c
     if (hinted) return hinted[1]
   }
   if (previous?.category === 'direct') return 'direct-individual'
-  if (previous?.category === 'indirect' || previous?.category === 'supervision') return 'indirect-records'
+  if (previous?.category === 'supervision') return 'supervision-individual'
+  if (previous?.category === 'indirect') return 'indirect-records'
   return firstKindId('direct')
 }
 
