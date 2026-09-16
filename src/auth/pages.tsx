@@ -11,7 +11,7 @@ const params = () => new URLSearchParams(window.location.search)
 
 function AuthLayout({ title, copy, children }: { title: string, copy: string, children?: React.ReactNode }) {
   return <div className="auth-screen"><form className="auth-card" onSubmit={e => e.preventDefault()}>
-    <div className="brand auth-brand"><div className="brand-mark">HP</div><strong>the Hours of Pee</strong></div>
+    <div className="brand auth-brand"><img className="brand-mark" src="/favicon.svg" width={39} height={39} alt=""/><strong>the Hours of Pee</strong></div>
     <span className="kicker">INVITATION ONLY</span>
     <h1>{title}</h1>
     <p>{copy}</p>

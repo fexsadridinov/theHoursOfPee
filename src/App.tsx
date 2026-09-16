@@ -102,7 +102,7 @@ function App({ section }: { section?: Section }) {
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(''), 2600); return () => clearTimeout(id) }, [toast])
 
   const openNew = (date?: string) => setEditing(emptyActivity(data, date))
-  const saveActivity = async (entries: Activity[], stayOpen = false) => {
+  const saveActivity = async (entries: Activity[]) => {
     const now = new Date().toISOString()
     let activities = data.activities
     for (const activity of entries) {
@@ -114,9 +114,9 @@ function App({ section }: { section?: Section }) {
     }
     const error = await commit({ ...data, activities })
     if (error) return error
-    if (!stayOpen) setEditing(null)
+    setEditing(null)
     const count = entries.length
-    setToast(entries[0]?.id ? 'Hours updated' : count > 1 ? `${count} days logged` : 'Hours logged')
+    setToast(entries[0]?.id && count === 1 ? 'Hours updated' : count > 1 ? `${count} entries logged` : 'Hours logged')
     return null
   }
   const removeActivity = async (id: string) => {
@@ -144,7 +144,8 @@ function App({ section }: { section?: Section }) {
   return <div className="app-shell">
     <aside className={`sidebar ${navOpen ? 'open' : ''}`} id="app-sidebar">
       <button type="button" className="brand" onClick={goDashboard} aria-label="the Hours of Pee — go to overview">
-        <div className="brand-mark">HP</div><div><strong>the Hours of Pee</strong><span>personal hours tracker</span></div>
+        <img className="brand-mark" src="/favicon.svg" width={39} height={39} alt=""/>
+        <div><strong>the Hours of Pee</strong><span>personal hours tracker</span></div>
       </button>
       <nav aria-label="Main navigation">
         <span className="nav-label">Workspace</span>
@@ -653,141 +654,184 @@ function SupervisorSelect({ items, value, onChange, onCreate, labelledBy }: {
 
 const QUICK_HOURS = [0.5, 1, 1.5, 2, 3, 4, 8]
 
+type Draft = { key: string, activity: Activity, hours: string }
+
 function ActivityDialog({ activity, data, close, save, remove, openPlacements }: {
   activity: Activity, data: AppData, close: () => void,
-  save: (entries: Activity[], stayOpen?: boolean) => Promise<string | null>,
+  save: (entries: Activity[]) => Promise<string | null>,
   remove: (id: string) => Promise<string | null>, openPlacements: () => void,
 }) {
-  const initialType = typeOf(data, activity.activityTypeId)
-  const [dates, setDates] = useState([activity.date || today()])
-  const [hours, setHours] = useState(String(hoursFromMinutes(activity.durationMinutes) || 1))
-  const [category, setCategory] = useState<ActivityCategory>(initialType?.category ?? 'direct')
-  const [activityTypeId, setActivityTypeId] = useState(initialType?.id ?? firstKindId('direct'))
-  const [placementId, setPlacementId] = useState(activity.placementId)
-  const [notes, setNotes] = useState(activity.notes)
+  const [drafts, setDrafts] = useState<Draft[]>([{
+    key: activity.id || uid(),
+    activity,
+    hours: String(hoursFromMinutes(activity.durationMinutes) || 1),
+  }])
+  const [selectedKey, setSelectedKey] = useState(drafts[0].key)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const parsedHours = parseHours(hours)
+  const selected = drafts.find(item => item.key === selectedKey) ?? drafts[0]
+  const category = typeOf(data, selected.activity.activityTypeId)?.category ?? 'direct'
   const kindOptions = kindsFor(category)
-  const placements = activeItems(data.placements, placementId)
-  const selectedPlacement = placementOf(data.placements, placementId)
-  const editing = Boolean(activity.id)
-  const latestDate = dates[dates.length - 1] || today()
-  const series = !editing && dates.length > 1
+  const placements = activeItems(data.placements, selected.activity.placementId)
+  const selectedPlacement = placementOf(data.placements, selected.activity.placementId)
+  const parsedHours = parseHours(selected.hours)
+  const editingSaved = Boolean(selected.activity.id)
+  const batch = drafts.length > 1
 
-  const addDate = (next: string) => {
-    if (!next) return
-    setDates(current => current.includes(next) ? current : [...current, next].sort())
+  const patch = (next: Partial<Activity> & { hours?: string }) => {
     setError('')
-  }
-  const setOneDate = (next: string) => { if (next) { setDates([next]); setError('') } }
-  const removeDate = (value: string) => {
-    setDates(current => current.length <= 1 ? current : current.filter(item => item !== value))
+    const { hours: hoursPatch, ...activityPatch } = next
+    setDrafts(current => current.map(item => {
+      if (item.key !== selectedKey) return item
+      const hours = hoursPatch ?? item.hours
+      const parsed = parseHours(hours)
+      return {
+        ...item,
+        hours,
+        activity: {
+          ...item.activity,
+          ...activityPatch,
+          durationMinutes: parsed === null ? item.activity.durationMinutes : minutesFromHours(parsed),
+        },
+      }
+    }))
   }
 
   const chooseCategory = (next: ActivityCategory) => {
-    setCategory(next)
-    if (typeCategory(data, activityTypeId) !== next) setActivityTypeId(firstKindId(next))
-    setError('')
+    const typeId = typeCategory(data, selected.activity.activityTypeId) === next
+      ? selected.activity.activityTypeId
+      : firstKindId(next)
+    patch({ activityTypeId: typeId })
   }
 
-  const problem = () => {
-    if (!dates.length) return 'Choose at least one date.'
-    if (!placements.length) return 'Add a placement before logging hours.'
-    if (!placementId) return 'Choose the placement these hours belong to.'
-    if (!activityTypeId) return `Choose a ${category} activity.`
-    if (parsedHours === null) return 'Enter how many hours you worked, for example 1.5.'
-    if (parsedHours > 24) return 'A single entry cannot be longer than 24 hours.'
-    if (dates.length > 31) return 'Log at most 31 days at a time.'
+  const draftProblem = (draft: Draft) => {
+    if (!draft.activity.date) return 'Choose the date you worked.'
+    if (!data.placements.length) return 'Add a placement before logging hours.'
+    if (!draft.activity.placementId) return 'Choose the placement these hours belong to.'
+    if (!draft.activity.activityTypeId) return 'Choose a Direct or Indirect activity.'
+    const hours = parseHours(draft.hours)
+    if (hours === null) return 'Enter how many hours you worked, for example 1.5.'
+    if (hours > 24) return 'A single entry cannot be longer than 24 hours.'
     return ''
   }
 
-  const entriesFor = (days: string[]): Activity[] => days.map(date => ({
-    ...activity, id: editing ? activity.id : '', date, durationMinutes: minutesFromHours(parsedHours!),
-    activityTypeId, placementId, supervisorId: selectedPlacement?.supervisorId ?? '', notes: notes.trim(),
-  }))
+  const addAnother = () => {
+    const copy: Draft = {
+      key: uid(),
+      hours: selected.hours,
+      activity: { ...selected.activity, id: '', supervisorId: selectedPlacement?.supervisorId ?? selected.activity.supervisorId },
+    }
+    setDrafts(current => [...current, copy])
+    setSelectedKey(copy.key)
+    setError('')
+  }
 
-  const submit = async (stayOpen = false) => {
-    const found = problem()
-    setError(found)
-    if (found) return
+  const dropDraft = (key: string) => {
+    if (drafts.length === 1) return
+    const next = drafts.filter(item => item.key !== key)
+    setDrafts(next)
+    if (selectedKey === key) setSelectedKey(next[0].key)
+  }
+
+  const submit = async () => {
+    const invalid = drafts.find(item => draftProblem(item))
+    if (invalid) {
+      setSelectedKey(invalid.key)
+      setError(draftProblem(invalid))
+      return
+    }
     setSaving(true)
-    const next = await save(entriesFor(dates), stayOpen)
+    const entries = drafts.map(item => ({
+      ...item.activity,
+      durationMinutes: minutesFromHours(parseHours(item.hours)!),
+      notes: item.activity.notes.trim(),
+      supervisorId: placementOf(data.placements, item.activity.placementId)?.supervisorId || item.activity.supervisorId,
+    }))
+    const next = await save(entries)
     setSaving(false)
-    if (next) { setError(next); return }
-    if (stayOpen) setDates([shiftDate(latestDate, 1)])
+    if (next) setError(next)
   }
 
   return <div className="modal-layer" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !saving) close() }}>
-    <form className="modal" onSubmit={e => { e.preventDefault(); void submit(false) }} role="dialog" aria-modal="true" aria-labelledby="activity-title">
+    <form className="modal log-modal" onSubmit={e => { e.preventDefault(); void submit() }} role="dialog" aria-modal="true" aria-labelledby="activity-title">
       <div className="modal-head">
-        <div><span className="kicker">{editing ? 'EDIT ENTRY' : series ? 'NEW SERIES' : 'NEW ENTRY'}</span><h2 id="activity-title">{editing ? 'Edit hours' : 'Log your hours'}</h2></div>
+        <div><span className="kicker">{editingSaved && !batch ? 'EDIT ENTRY' : batch ? 'NEW BATCH' : 'NEW ENTRY'}</span><h2 id="activity-title">{editingSaved && !batch ? 'Edit hours' : 'Log your hours'}</h2></div>
         <button type="button" className="icon-button" aria-label="Close" disabled={saving} onClick={close}><X/></button>
       </div>
-      <div className="form-grid">
-        <label className="full">{editing || dates.length === 1 ? 'Date' : 'Dates'}
-          <input type="date" aria-label={editing || dates.length === 1 ? 'Date' : 'Add a date'} value={latestDate} onChange={e => {
-            const next = e.target.value
-            if (!next) return
-            if (editing || dates.length <= 1) setOneDate(next)
-            else addDate(next)
-          }}/>
-          <div className="hour-chips date-chips">
-            <button type="button" className={`chip ${dates.includes(today()) ? 'on' : ''}`} onClick={() => { dates.length > 1 ? addDate(today()) : setOneDate(today()) }}>Today</button>
-            <button type="button" className="chip" onClick={() => { const next = shiftDate(latestDate, -1); dates.length > 1 ? addDate(next) : setOneDate(next) }}>Previous day</button>
-            <button type="button" className="chip" onClick={() => { const next = shiftDate(latestDate, 1); dates.length > 1 ? addDate(next) : setOneDate(next) }}>Next day</button>
-            {!editing && <button type="button" className="chip" onClick={() => addDate(shiftDate(latestDate, 1))}>Add another day</button>}
-          </div>
-          {series && <>
-            <div className="series-dates" aria-label="Days in this series">
-              {dates.map(value => <span className="series-chip" key={value}>
-                {dateLabel(value, { day: 'numeric', month: 'short' })}
-                <button type="button" aria-label={`Remove ${dateLabel(value, { day: 'numeric', month: 'short' })}`} onClick={() => removeDate(value)}><X size={12}/></button>
-              </span>)}
+      <div className="log-body">
+        {batch && <div className="draft-table-wrap">
+          <table className="draft-table" aria-label="Entries to save">
+            <thead><tr><th>Date</th><th>Hours</th><th>Activity</th><th>Placement</th><th>Notes</th><th aria-label="Remove"></th></tr></thead>
+            <tbody>
+              {drafts.map(draft => {
+                const on = draft.key === selectedKey
+                return <tr key={draft.key} className={on ? 'on' : ''} aria-current={on ? 'true' : undefined}>
+                  <td><button type="button" className="draft-select" onClick={() => { setSelectedKey(draft.key); setError('') }}>{dateLabel(draft.activity.date, { day: 'numeric', month: 'short' })}</button></td>
+                  <td><button type="button" className="draft-select" onClick={() => { setSelectedKey(draft.key); setError('') }}>{draft.hours || '—'} h</button></td>
+                  <td><button type="button" className="draft-select" onClick={() => { setSelectedKey(draft.key); setError('') }}>{typeName(data, draft.activity.activityTypeId)}</button></td>
+                  <td><button type="button" className="draft-select" onClick={() => { setSelectedKey(draft.key); setError('') }}>{placementName(data.placements, draft.activity.placementId, '—')}</button></td>
+                  <td className="notes-cell"><button type="button" className="draft-select" onClick={() => { setSelectedKey(draft.key); setError('') }}>{draft.activity.notes || '—'}</button></td>
+                  <td>{drafts.length > 1 && <button type="button" className="icon-button" aria-label="Remove this draft" onClick={() => dropDraft(draft.key)}><X size={15}/></button>}</td>
+                </tr>
+              })}
+            </tbody>
+          </table>
+        </div>}
+        <div className={batch ? 'draft-editor' : undefined}>
+          {batch && <p className="draft-editor-label">Adjusting {dateLabel(selected.activity.date, { day: 'numeric', month: 'short' })} · {typeName(data, selected.activity.activityTypeId)}</p>}
+          <div className="form-grid">
+            <label>Date
+              <input type="date" aria-label="Date" value={selected.activity.date} onChange={e => patch({ date: e.target.value })}/>
+            </label>
+            <label>Hours
+              <input aria-label="Hours" type="text" inputMode="decimal" value={selected.hours} onChange={e => patch({ hours: e.target.value })}/>
+              <small>Decimal hours, e.g. 1.5</small>
+            </label>
+            <div className="field full"><span className="sr-only">Date shortcuts</span>
+              <div className="hour-chips date-chips">
+                <button type="button" className={`chip ${selected.activity.date === today() ? 'on' : ''}`} onClick={() => patch({ date: today() })}>Today</button>
+                <button type="button" className="chip" onClick={() => patch({ date: shiftDate(selected.activity.date || today(), -1) })}>Previous day</button>
+                <button type="button" className="chip" onClick={() => patch({ date: shiftDate(selected.activity.date || today(), 1) })}>Next day</button>
+              </div>
             </div>
-            <small>Same hours, activity, placement, and notes will be saved on each day.</small>
-          </>}
-        </label>
-        <label className="full">Hours
-          <input aria-label="Hours" type="text" inputMode="decimal" value={hours} onChange={e => { setHours(e.target.value); setError('') }}/>
-          <small>Use decimal hours — 1.5 is one and a half hours.</small>
-        </label>
-        <div className="field full"><span>Quick pick</span>
-          <div className="hour-chips">{QUICK_HOURS.map(value => <button type="button" key={value} className={`chip ${parsedHours === value ? 'on' : ''}`} onClick={() => { setHours(String(value)); setError('') }}>{value} h</button>)}</div>
-        </div>
-        <label className="full">Placement
-          <select aria-label="Placement" value={placementId} onChange={e => { setPlacementId(e.target.value); setError('') }}>
-            <option value="">{placements.length ? 'Choose a placement' : 'Add a placement first'}</option>
-            {placements.map(item => <option key={item.id} value={item.id}>{item.name}{item.site ? ` · ${item.site}` : ''}</option>)}
-          </select>
-          {selectedPlacement?.supervisorId && <small>Supervisor: {itemName(data.dictionaries.supervisors, selectedPlacement.supervisorId)}</small>}
-        </label>
-        <div className="field full"><span>Activity type</span>
-          <div className="type-choice" role="radiogroup" aria-label="Activity type">
-            {(['direct', 'indirect'] as const).map(next => {
-              const selected = category === next
-              return <button type="button" key={next} role="radio" aria-checked={selected} className={`type-choice-btn ${selected ? 'on' : ''}`} onClick={() => chooseCategory(next)}>
-                <i style={{ background: next === 'direct' ? '#42564b' : '#a05d42' }}/>
-                <strong>{next === 'direct' ? 'Direct hours' : 'Indirect hours'}</strong>
-                <small>{next === 'direct' ? 'Time with clients' : 'Everything else'}</small>
-              </button>
-            })}
+            <div className="field full"><span>Quick pick</span>
+              <div className="hour-chips">{QUICK_HOURS.map(value => <button type="button" key={value} className={`chip ${parsedHours === value ? 'on' : ''}`} onClick={() => patch({ hours: String(value) })}>{value} h</button>)}</div>
+            </div>
+            <label className="full">Placement
+              <select aria-label="Placement" value={selected.activity.placementId} onChange={e => patch({ placementId: e.target.value, supervisorId: placementOf(data.placements, e.target.value)?.supervisorId ?? '' })}>
+                <option value="">{placements.length ? 'Choose a placement' : 'Add a placement first'}</option>
+                {placements.map(item => <option key={item.id} value={item.id}>{item.name}{item.site ? ` · ${item.site}` : ''}</option>)}
+              </select>
+              {selectedPlacement?.supervisorId && <small>Supervisor: {itemName(data.dictionaries.supervisors, selectedPlacement.supervisorId)}</small>}
+            </label>
+            <div className="field full"><span>Activity type</span>
+              <div className="type-choice" role="radiogroup" aria-label="Activity type">
+                {(['direct', 'indirect'] as const).map(next => {
+                  const on = category === next
+                  return <button type="button" key={next} role="radio" aria-checked={on} className={`type-choice-btn ${on ? 'on' : ''}`} onClick={() => chooseCategory(next)}>
+                    <i style={{ background: next === 'direct' ? '#42564b' : '#a05d42' }}/>
+                    <strong>{next === 'direct' ? 'Direct hours' : 'Indirect hours'}</strong>
+                    <small>{next === 'direct' ? 'Time with clients' : 'Everything else'}</small>
+                  </button>
+                })}
+              </div>
+            </div>
+            <label className="full">{category === 'direct' ? 'Direct activity' : 'Indirect activity'}
+              <select aria-label={category === 'direct' ? 'Direct activity' : 'Indirect activity'} value={selected.activity.activityTypeId} onChange={e => patch({ activityTypeId: e.target.value })}>
+                {kindOptions.map(kind => <option key={kind.id} value={kind.id}>{kind.name}</option>)}
+              </select>
+            </label>
+            <label className="full">Notes<textarea rows={batch ? 2 : 3} value={selected.activity.notes} onChange={e => patch({ notes: e.target.value })} placeholder="A short, useful note…"/></label>
           </div>
         </div>
-        <label className="full">{category === 'direct' ? 'Direct activity' : 'Indirect activity'}
-          <select aria-label={category === 'direct' ? 'Direct activity' : 'Indirect activity'} value={activityTypeId} onChange={e => { setActivityTypeId(e.target.value); setError('') }}>
-            {kindOptions.map(kind => <option key={kind.id} value={kind.id}>{kind.name}</option>)}
-          </select>
-        </label>
-        <label className="full">Notes<textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="A short, useful note…"/></label>
       </div>
       {error && <p className="form-error" role="alert">{error}{error.includes('placement') && <> <button type="button" className="text-button" onClick={openPlacements}>Open Placement</button></>}</p>}
       <div className="modal-actions">
-        {editing && <button type="button" className="danger-text" disabled={saving} onClick={() => void remove(activity.id).then(next => { if (next) setError(next) })}><Trash2 size={17}/> Delete</button>}
+        {editingSaved && !batch && <button type="button" className="danger-text" disabled={saving} onClick={() => void remove(selected.activity.id).then(next => { if (next) setError(next) })}><Trash2 size={17}/> Delete</button>}
+        <button type="button" className="secondary" disabled={saving} onClick={addAnother}><Plus size={16}/> Add another</button>
         <span/>
         <button type="button" className="secondary" disabled={saving} onClick={close}>Cancel</button>
-        {!editing && <button type="button" className="secondary" disabled={saving} onClick={() => void submit(true)}>{saving ? 'Saving…' : 'Save and add another'}</button>}
-        <button className="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : dates.length > 1 ? `Save ${dates.length} days` : 'Save entry'}</button>
+        <button className="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : editingSaved && !batch ? 'Save changes' : drafts.length > 1 ? `Save ${drafts.length} entries` : 'Save entry'}</button>
       </div>
     </form>
   </div>
