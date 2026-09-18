@@ -36,8 +36,8 @@ export const listReportLogs = (data: AppData): ReportLog[] => {
       key,
       placementId,
       supervisorId,
-      placementName: placement?.name || (placementId ? placementName(data.placements, placementId) : 'Unassigned'),
-      site: placement?.site ?? '',
+      placementName: placementName(data.placements, placementId),
+      site: placement?.site && placement.site !== placement.name ? placement.site : '',
       supervisorName: itemName(data.dictionaries.supervisors, supervisorId, supervisorId ? 'Unknown supervisor' : 'No supervisor'),
     })
   }
@@ -146,9 +146,12 @@ export const writeTraineeName = (name: string) => {
   try { localStorage.setItem(TRAINEE_NAME_KEY, name.trim()) } catch { /* ignore */ }
 }
 
-export const resolveTraineeName = (displayName?: string | null) => {
+export const resolveTraineeName = (displayName?: string | null, email?: string | null) => {
   const named = displayName?.trim()
   if (named && !named.includes('@')) return named
+  const localPart = email?.split('@')[0]?.trim()
+  if (localPart) return localPart
+  if (named) return named.split('@')[0] || named
   return readTraineeName(DEFAULT_TRAINEE_NAME)
 }
 

@@ -72,6 +72,41 @@
 .sign-line { border-bottom: 1px solid #94B49F; min-height: 26px; }
 .sign-row span { display: block; margin-top: 5px; font-size: 11px; color: #4A5C52; }
 
+.peepoo {
+  display: inline-block;
+  height: 1.05em;
+  width: 1.05em;
+  vertical-align: -0.18em;
+  line-height: 0;
+  overflow: hidden;
+}
+.peepoo svg {
+  display: block;
+  width: 1.05em;
+  height: 1.05em;
+}
+.peepoo-eyes-shut { opacity: 0; }
+.peepoo-bob { transform-box: fill-box; transform-origin: center bottom; animation: peepoo-bob 1.4s ease-in-out infinite; }
+.peepoo-eyes-open { animation: peepoo-blink 3.2s step-end infinite; }
+.peepoo-eyes-shut { animation: peepoo-wink 3.2s step-end infinite; }
+@keyframes peepoo-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+@keyframes peepoo-blink {
+  0%, 88%, 100% { opacity: 1; }
+  90%, 96% { opacity: 0; }
+}
+@keyframes peepoo-wink {
+  0%, 88%, 100% { opacity: 0; }
+  90%, 96% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .peepoo-bob, .peepoo-eyes-open, .peepoo-eyes-shut { animation: none; }
+  .peepoo-eyes-shut { opacity: 0; }
+  .peepoo-eyes-open { opacity: 1; }
+}
+
 @media (max-width: 1050px) {
   .type-columns { grid-template-columns: 1fr; }
 }
@@ -82,12 +117,17 @@
 }
 
 @media print {
-  .no-print, [data-slot="sidebar"], header, .page-heading { display: none !important; }
+  @page { margin: 14mm; }
+  .no-print, [data-slot="sidebar"], .page-heading { display: none !important; }
   html, body { background: #FCF8E8; }
   main { margin: 0 !important; }
-  .summary-report { border: 0; box-shadow: none; padding: 12mm 14mm; background: #FCF8E8; }
+  .summary-report { border: 0; box-shadow: none; padding: 0; background: #FCF8E8; overflow: visible !important; }
+  .summary-head { break-after: avoid; }
   .summary-report h2 { break-after: avoid; }
   .summary-table thead { display: table-header-group; }
-  .sign-block { break-inside: avoid; }
+  .summary-table tr { break-inside: avoid; }
+  .sign-block { break-inside: avoid; page-break-after: auto; }
+  .hours-log-appendix { break-before: page; page-break-before: always; padding-top: 2mm; }
+  .hours-log-appendix .summary-table { break-inside: auto; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }

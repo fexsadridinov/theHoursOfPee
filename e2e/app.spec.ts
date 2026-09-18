@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test'
 
-const dashboard = 'Your hours at a glance.'
+const dashboard = /^Welcome,/
 
 test('logging hours works with nothing but the prefilled defaults', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: dashboard })).toBeVisible()
+  await expect(page.getByText(/Peepoo is proud of you/)).toBeVisible()
   await page.getByRole('button', { name: 'Log hours', exact: true }).first().click()
   await page.getByLabel('Hours', { exact: true }).fill('1.5')
   await page.getByLabel('Notes').fill('Playwright private entry')
@@ -103,6 +104,10 @@ test('every page keeps a way back to the dashboard', async ({ page }) => {
   await page.getByRole('button', { name: 'Reports' }).click()
   await expect(page.getByRole('heading', { name: /Activity Summary/ })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Hours summary' })).toBeVisible()
+  const report = page.locator('.summary-report')
+  const hoursLog = await report.getByRole('heading', { name: 'Hours log' }).boundingBox()
+  const signature = await report.getByText('Trainee signature').boundingBox()
+  expect(hoursLog && signature && hoursLog.y > signature.y).toBe(true)
   await page.getByRole('button', { name: 'the Hours of Pee — go to overview' }).click()
   await expect(page.getByRole('heading', { name: dashboard })).toBeVisible()
 })
@@ -111,8 +116,14 @@ test('placement separates hours by job and is where supervisors are added', asyn
   await page.goto('/')
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Placement', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Placement', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Community placement' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'School counseling site' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Riverside Clinic' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Lincoln High School' })).toBeVisible()
+  await page.getByRole('button', { name: 'Add placement' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByLabel('Site')).toBeVisible()
+  await expect(dialog.getByLabel('Placement name')).toHaveCount(0)
+  await expect(dialog.getByLabel('Job / site')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Close' }).click()
   await expect(page.getByLabel('Add supervisor')).toBeVisible()
   await page.getByRole('button', { name: 'View hours' }).first().click()
   await expect(page.getByText('Hours at this site')).toBeVisible()

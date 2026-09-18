@@ -1,7 +1,7 @@
 import { emptyRemoteWorkspace, SessionExpiredError, type DataRepository } from './types'
 import { getSupabase } from './supabase'
 import { mergeWithoutOverwrite } from '../migration'
-import { catalogTypes, resolveKindId, ensurePlacements } from '../dictionaries'
+import { catalogTypes, foldPlacementName, resolveKindId, ensurePlacements } from '../dictionaries'
 import { ownershipUserId } from '../auth/access'
 import type { Activity, AppData, DictionaryItem, Placement } from '../types'
 
@@ -92,11 +92,14 @@ export class RemoteRepository implements DataRepository {
 
 const emptyToNull = (value: string) => value || null
 const mapItem = (row: { id: string, name: string, active: boolean }): DictionaryItem => ({ id: row.id, name: row.name, active: row.active })
-const mapPlacement = (row: Record<string, string | number | boolean | null>): Placement => ({
-  id: String(row.id), name: String(row.name), site: String(row.site ?? ''),
-  supervisorId: String(row.supervisor_id ?? ''), startDate: String(row.start_date ?? ''),
-  endDate: String(row.end_date ?? ''), active: row.active !== false,
-})
+const mapPlacement = (row: Record<string, string | number | boolean | null>): Placement => {
+  const folded = foldPlacementName(String(row.name ?? ''), String(row.site ?? ''))
+  return {
+    id: String(row.id), name: folded.name, site: folded.site,
+    supervisorId: String(row.supervisor_id ?? ''), startDate: String(row.start_date ?? ''),
+    endDate: String(row.end_date ?? ''), active: row.active !== false,
+  }
+}
 const mapActivity = (row: Record<string, string | number | boolean | null>): Activity => ({
   id: String(row.id), date: String(row.date), durationMinutes: Number(row.duration_minutes),
   activityTypeId: resolveKindId(String(row.activity_type_id ?? '')),

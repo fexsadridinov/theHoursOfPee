@@ -126,14 +126,23 @@ export const emptyPlacement = (): Placement => ({
   id: '', name: '', site: '', supervisorId: '', startDate: '', endDate: '', active: true,
 })
 
+export const foldPlacementName = (name: string, site: string) => {
+  const siteName = site.trim()
+  const given = name.trim()
+  return { name: siteName || given || 'Untitled placement', site: '' }
+}
+
 export const defaultPlacements = (): Placement[] => [
-  { id: 'place-riverside', name: 'Community placement', site: 'Riverside Clinic', supervisorId: 'sup-maya', startDate: '', endDate: '', active: true },
-  { id: 'place-school', name: 'School counseling site', site: 'Lincoln High School', supervisorId: 'sup-jordan', startDate: '', endDate: '', active: true },
+  { id: 'place-riverside', name: 'Riverside Clinic', site: '', supervisorId: 'sup-maya', startDate: '', endDate: '', active: true },
+  { id: 'place-school', name: 'Lincoln High School', site: '', supervisorId: 'sup-jordan', startDate: '', endDate: '', active: true },
 ]
 
 export const placementOf = (placements: Placement[], id: string) => placements.find(item => item.id === id)
-export const placementName = (placements: Placement[], id: string, fallback = 'Unassigned') =>
-  placementOf(placements, id)?.name || fallback
+export const placementName = (placements: Placement[], id: string, fallback = 'Unassigned') => {
+  const item = placementOf(placements, id)
+  if (!item) return fallback
+  return item.name.trim() || item.site.trim() || fallback
+}
 export const placementSite = (placements: Placement[], id: string) => placementOf(placements, id)?.site ?? ''
 
 export const itemName = (items: DictionaryItem[], id: string, fallback = '') =>
@@ -197,15 +206,21 @@ const integerMinutes = (value: unknown, fallback = 60) => {
   return Number.isFinite(minutes) && minutes > 0 ? minutes : fallback
 }
 
-const mapPlacement = (item: LegacyPlacement, index: number): Placement => ({
-  id: item.id || `place-${index + 1}`,
-  name: item.name?.trim() || 'Untitled placement',
-  site: (item.site ?? item.organization ?? item.setting ?? '').trim(),
-  supervisorId: item.supervisorId ?? '',
-  startDate: item.startDate ?? '',
-  endDate: item.endDate ?? '',
-  active: item.active !== false,
-})
+const mapPlacement = (item: LegacyPlacement, index: number): Placement => {
+  const folded = foldPlacementName(
+    item.name ?? '',
+    item.site ?? item.organization ?? item.setting ?? '',
+  )
+  return {
+    id: item.id || `place-${index + 1}`,
+    name: folded.name,
+    site: folded.site,
+    supervisorId: item.supervisorId ?? '',
+    startDate: item.startDate ?? '',
+    endDate: item.endDate ?? '',
+    active: item.active !== false,
+  }
+}
 
 export const migrateToCurrent = (raw: {
   schemaVersion?: number

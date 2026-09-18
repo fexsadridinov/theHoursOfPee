@@ -26,6 +26,7 @@ import {
   writeTraineeName, type ReportLog,
 } from './report'
 import { cn } from './lib/utils'
+import { PeepooCat } from './components/PeepooCat'
 import { Alert } from './components/ui/alert'
 import { Button } from './components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card'
@@ -127,7 +128,8 @@ function MigrationModal() {
 
 function App({ section }: { section?: Section }) {
   const { data, setData, commit, kind } = useWorkspace()
-  const { remote, profile, signOut, updateDisplayName } = useAuth()
+  const { remote, profile, session, signOut, updateDisplayName } = useAuth()
+  const traineeName = resolveTraineeName(profile?.displayName, session?.email)
   const [page, setPage] = useState<Page>('dashboard')
   const [navOpen, setNavOpen] = useState(false)
   const [editing, setEditing] = useState<Activity | null>(null)
@@ -240,10 +242,10 @@ function App({ section }: { section?: Section }) {
       </header>
       <SaveBanner />
       {section === 'admin' ? <AdminPage/> : section === 'account' ? <AccountPage/> : <>
-        {page === 'dashboard' && <Dashboard data={data} openNew={openNew} edit={setEditing} go={setPage}/>}
+        {page === 'dashboard' && <Dashboard data={data} traineeName={traineeName} openNew={openNew} edit={setEditing} go={setPage}/>}
         {page === 'calendar' && <Calendar data={data} openNew={openNew} edit={setEditing}/>}
         {page === 'placements' && <Placements data={data} setData={setData} edit={setEditing} openNew={openNew} notify={setToast} goReports={goReports}/>}
-        {page === 'reports' && <Reports data={data} traineeName={resolveTraineeName(profile?.displayName)} logKey={reportLogKey} setLogKey={setReportLogKey} saveName={name => {
+        {page === 'reports' && <Reports data={data} traineeName={traineeName} nameLocked={remote} logKey={reportLogKey} setLogKey={setReportLogKey} saveName={name => {
           writeTraineeName(name)
           if (remote) void updateDisplayName(name)
         }}/>}
@@ -269,7 +271,7 @@ function PageHeading({ kicker, title, copy, action }: { kicker: string, title: s
   )
 }
 
-function Dashboard({ data, openNew, edit, go }: { data: AppData, openNew: () => void, edit: (a: Activity) => void, go: (p: Page) => void }) {
+function Dashboard({ data, traineeName, openNew, edit, go }: { data: AppData, traineeName: string, openNew: () => void, edit: (a: Activity) => void, go: (p: Page) => void }) {
   const now = new Date(); const weekStart = startOfWeek(now); const month = monthKey(now)
   const activities = data.activities
   const todayMinutes = sumMinutes(activities, a => a.date === today())
@@ -288,7 +290,12 @@ function Dashboard({ data, openNew, edit, go }: { data: AppData, openNew: () => 
   const indirectPct = total ? (byCategory.indirect ?? 0) / total * 100 : 0
 
   return <section className="mx-auto max-w-[1420px] px-4 py-6 sm:px-6 sm:py-10 lg:px-[4.2vw] lg:pb-[70px]">
-    <PageHeading kicker="Your progress" title="Your hours at a glance." copy="A calm view of the time you have logged."/>
+    <div className="page-heading mb-6 md:mb-8">
+      <h1 className="font-serif text-[clamp(1.75rem,4vw,3.375rem)] font-semibold leading-[0.95] tracking-tight">Welcome, {traineeName}</h1>
+      <p className="mt-3 m-0 font-serif text-[clamp(1.15rem,2.4vw,1.85rem)] font-semibold leading-none tracking-tight">
+        Peepoo is proud of you, <span className="whitespace-nowrap"><PeepooCat />!</span>
+      </p>
+    </div>
     <div className="mb-3.5 grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
       <Metric label="Today" value={formatHours(todayMinutes)} hint={dateLabel(today(), { day: 'numeric', month: 'long' })} tone="sage"/>
       <Metric label="This week" value={formatHours(weekMinutes)} hint={`Since ${dateLabel(iso(weekStart), { day: 'numeric', month: 'short' })}`} tone="clay"/>
@@ -479,7 +486,7 @@ function Placements({ data, setData, edit, openNew, notify, goReports }: {
       <PageHeading
         kicker="Job / site"
         title={selected.name}
-        copy={[selected.site, itemName(data.dictionaries.supervisors, selected.supervisorId), rangeLabel(selected.startDate, selected.endDate)].filter(Boolean).join(' · ') || 'Hours logged against this placement.'}
+        copy={[itemName(data.dictionaries.supervisors, selected.supervisorId), rangeLabel(selected.startDate, selected.endDate)].filter(Boolean).join(' · ') || 'Hours logged against this site.'}
         action={<div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setSelectedId(null)}><ChevronLeft size={16}/> All placements</Button>
           <Button variant="outline" onClick={() => goReports(selected.id)}><FileBarChart size={17}/> Report</Button>
@@ -514,7 +521,7 @@ function Placements({ data, setData, edit, openNew, notify, goReports }: {
             <Button variant="ghost" size="icon" aria-label={`Edit ${placement.name}`} onClick={() => setDraft(placement)}><MoreHorizontal size={19}/></Button>
           </CardHeader>
           <CardContent>
-            <p className="mb-4 text-xs leading-relaxed text-muted-foreground">{[placement.site, itemName(data.dictionaries.supervisors, placement.supervisorId), rangeLabel(placement.startDate, placement.endDate)].filter(Boolean).join(' · ') || 'No site details yet.'}</p>
+            <p className="mb-4 text-xs leading-relaxed text-muted-foreground">{[itemName(data.dictionaries.supervisors, placement.supervisorId), rangeLabel(placement.startDate, placement.endDate)].filter(Boolean).join(' · ') || 'Hours logged against this site.'}</p>
             <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
               <div className="rounded-lg bg-muted p-2.5"><span className="block text-[8px] uppercase tracking-wide text-muted-foreground">Direct</span><strong className="mt-1 block font-serif text-lg">{formatHoursFixed(split.direct ?? 0)}</strong></div>
               <div className="rounded-lg bg-muted p-2.5"><span className="block text-[8px] uppercase tracking-wide text-muted-foreground">Indirect</span><strong className="mt-1 block font-serif text-lg">{formatHoursFixed(split.indirect ?? 0)}</strong></div>
@@ -564,8 +571,7 @@ function PlacementDialog({ placement, data, setData, close, save, remove }: {
   placement: Placement, data: AppData, setData: React.Dispatch<React.SetStateAction<AppData>>,
   close: () => void, save: (placement: Placement) => void, remove?: (placement: Placement) => void,
 }) {
-  const [name, setName] = useState(placement.name)
-  const [site, setSite] = useState(placement.site)
+  const [site, setSite] = useState(placement.name || placement.site)
   const [supervisorId, setSupervisorId] = useState(placement.supervisorId)
   const [startDate, setStartDate] = useState(placement.startDate)
   const [endDate, setEndDate] = useState(placement.endDate)
@@ -574,8 +580,8 @@ function PlacementDialog({ placement, data, setData, close, save, remove }: {
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
-    if (!name.trim()) { setError('Give this placement a name, for example the job or course title.'); return }
-    save({ ...placement, name: name.trim(), site: site.trim(), supervisorId, startDate, endDate, active })
+    if (!site.trim()) { setError('Give this placement a site, for example the clinic or school name.'); return }
+    save({ ...placement, name: site.trim(), site: '', supervisorId, startDate, endDate, active })
   }
 
   return (
@@ -590,8 +596,7 @@ function PlacementDialog({ placement, data, setData, close, save, remove }: {
             <Button type="button" variant="ghost" size="icon" aria-label="Close" onClick={close}><X/></Button>
           </div>
           <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2">
-            <div className="grid gap-1.5 sm:col-span-2"><Label htmlFor="placement-name">Placement name</Label><Input id="placement-name" value={name} onChange={e => { setName(e.target.value); setError('') }} placeholder="e.g. 2025–2026 Practicum"/></div>
-            <div className="grid gap-1.5 sm:col-span-2"><Label htmlFor="placement-site">Job / site</Label><Input id="placement-site" value={site} onChange={e => setSite(e.target.value)} placeholder="e.g. Riverbank Psychotherapy"/></div>
+            <div className="grid gap-1.5 sm:col-span-2"><Label htmlFor="placement-site">Site</Label><Input id="placement-site" value={site} onChange={e => { setSite(e.target.value); setError('') }} placeholder="e.g. Riverbank Psychotherapy"/></div>
             <div className="grid gap-1.5 sm:col-span-2">
               <span className={kickerClass} id="placement-supervisor">Supervisor</span>
               <SupervisorSelect labelledBy="placement-supervisor" items={data.dictionaries.supervisors} value={supervisorId} onChange={setSupervisorId} onCreate={name => {
@@ -684,8 +689,8 @@ function ActivityRows({ activities, data, edit }: { activities: Activity[], data
   ))}</div>
 }
 
-function Reports({ data, traineeName, logKey, setLogKey, saveName }: {
-  data: AppData, traineeName: string, logKey: string, setLogKey: (key: string) => void, saveName: (name: string) => void,
+function Reports({ data, traineeName, nameLocked, logKey, setLogKey, saveName }: {
+  data: AppData, traineeName: string, nameLocked: boolean, logKey: string, setLogKey: (key: string) => void, saveName: (name: string) => void,
 }) {
   const logs = useMemo(() => listReportLogs(data), [data])
   const log = logs.find(item => item.key === logKey) ?? logs[0]
@@ -697,6 +702,10 @@ function Reports({ data, traineeName, logKey, setLogKey, saveName }: {
   const [from, setFrom] = useState(span.from)
   const [to, setTo] = useState(span.to)
   const [name, setName] = useState(traineeName)
+
+  useLayoutEffect(() => {
+    setName(traineeName)
+  }, [traineeName])
 
   useLayoutEffect(() => {
     if (log && log.key !== logKey) setLogKey(log.key)
@@ -712,14 +721,16 @@ function Reports({ data, traineeName, logKey, setLogKey, saveName }: {
     setTo(current => !current || current < span.to ? span.to : current)
   }, [span.from, span.to])
 
+  const headerName = nameLocked ? traineeName : name
   const filtered = useMemo(() =>
     logActivities.filter(item => inDateRange(item.date, from, to)).sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)),
   [logActivities, from, to])
   const split = useMemo(() => categoryMinutes(filtered, data.activityTypes), [filtered, data.activityTypes])
-  const fileBase = timeLogFileBase(name, from, to)
+  const fileBase = timeLogFileBase(headerName, from, to)
   const csv = useMemo(() => log ? buildTimeLogCsv(data, filtered, {
-    traineeName: name, placementName: log.placementName, supervisorName: log.supervisorName, site: log.site, from, to,
-  }) : '', [data, filtered, log, name, from, to])
+    traineeName: headerName, placementName: log.placementName, supervisorName: log.supervisorName, site: log.site, from, to,
+  }) : '', [data, filtered, log, headerName, from, to])
+  const rangeLabelText = prettyDateRange(from, to)
 
   return <section className="report-page mx-auto max-w-[1420px] px-4 py-6 sm:px-6 sm:py-10 lg:px-[4.2vw] lg:pb-[70px]">
     <PageHeading kicker="Review & export" title="Reports" copy="One time log per placement and supervisor. Export a CSV or print a PDF with matching names." action={<div className="flex flex-wrap gap-2 no-print">
@@ -728,8 +739,8 @@ function Reports({ data, traineeName, logKey, setLogKey, saveName }: {
     </div>}/>
     <Card className="mb-3.5 no-print">
       <CardContent className="grid grid-cols-1 gap-4 pt-5 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="grid gap-1.5"><Label htmlFor="report-name">Your name</Label><Input id="report-name" value={name} onChange={e => setName(e.target.value)} onBlur={e => saveName(e.target.value)} placeholder="Your name for the header"/></div>
-        <div className="grid gap-1.5 sm:col-span-2 xl:col-span-1"><Label htmlFor="report-log">Placement & supervisor</Label>
+        {!nameLocked && <div className="grid gap-1.5"><Label htmlFor="report-name">Your name</Label><Input id="report-name" value={name} onChange={e => setName(e.target.value)} onBlur={e => saveName(e.target.value)} placeholder="Your name for the header"/></div>}
+        <div className={cn('grid gap-1.5', nameLocked ? 'sm:col-span-2 xl:col-span-2' : 'sm:col-span-2 xl:col-span-1')}><Label htmlFor="report-log">Placement & supervisor</Label>
           <NativeSelect id="report-log" aria-label="Placement and supervisor" value={log?.key ?? ''} onChange={e => setLogKey(e.target.value)}>
             {logs.map(item => <option key={item.key} value={item.key}>{item.placementName} · {item.supervisorName}</option>)}
           </NativeSelect>
@@ -740,10 +751,10 @@ function Reports({ data, traineeName, logKey, setLogKey, saveName }: {
     </Card>
     <Card className="summary-report overflow-hidden p-0">
       <header className="summary-head">
-        <h1>{reportTitle(name)}</h1>
+        <h1>{reportTitle(headerName)}</h1>
         <p className="summary-meta">Placement: {log?.placementName || 'Unassigned'}</p>
         <p className="summary-meta">Supervisor: {log?.supervisorName || 'No supervisor'}</p>
-        <p className="summary-meta">Date range: {prettyDateRange(from, to)}</p>
+        <p className="summary-meta">Date range: {rangeLabelText}</p>
       </header>
 
       <h2>Hours summary</h2>
@@ -757,25 +768,6 @@ function Reports({ data, traineeName, logKey, setLogKey, saveName }: {
               <td className="num">{formatHoursFixed(split.supervision ?? 0)}</td>
               <td className="num">{formatHoursFixed(sumMinutes(filtered))}</td>
             </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h2>Hours log</h2>
-      <div className="summary-scroll">
-        <table className="summary-table">
-          <thead><tr><th>Date</th><th className="num">Hours</th><th>Category</th><th>Activity</th><th>Notes</th></tr></thead>
-          <tbody>
-            {filtered.map(item => (
-              <tr key={item.id}>
-                <td>{longDate(item.date)}</td>
-                <td className="num">{formatHoursFixed(item.durationMinutes)}</td>
-                <td>{categoryLabel(typeCategory(data, item.activityTypeId))}</td>
-                <td>{typeName(data, item.activityTypeId)}</td>
-                <td>{item.notes || '—'}</td>
-              </tr>
-            ))}
-            {!filtered.length && <tr><td colSpan={5}>No hours in this range for this placement and supervisor.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -806,6 +798,31 @@ function Reports({ data, traineeName, logKey, setLogKey, saveName }: {
         <div className="sign-row"><div><div className="sign-line"/><span>Printed name</span></div><div/></div>
         <div className="sign-row"><div><div className="sign-line"/><span>Program verification signature</span></div><div><div className="sign-line"/><span>Date</span></div></div>
         <div className="sign-row"><div><div className="sign-line"/><span>Printed name</span></div><div><div className="sign-line"/><span>Title / Position</span></div></div>
+      </div>
+
+      <div className="hours-log-appendix">
+        <h2>Hours log</h2>
+        <p className="summary-meta">{reportTitle(headerName)}</p>
+        <p className="summary-meta">Placement: {log?.placementName || 'Unassigned'}</p>
+        <p className="summary-meta">Supervisor: {log?.supervisorName || 'No supervisor'}</p>
+        <p className="summary-meta">Date range: {rangeLabelText}</p>
+        <div className="summary-scroll">
+          <table className="summary-table">
+            <thead><tr><th>Date</th><th className="num">Hours</th><th>Category</th><th>Activity</th><th>Notes</th></tr></thead>
+            <tbody>
+              {filtered.map(item => (
+                <tr key={item.id}>
+                  <td>{longDate(item.date)}</td>
+                  <td className="num">{formatHoursFixed(item.durationMinutes)}</td>
+                  <td>{categoryLabel(typeCategory(data, item.activityTypeId))}</td>
+                  <td>{typeName(data, item.activityTypeId)}</td>
+                  <td>{item.notes || '—'}</td>
+                </tr>
+              ))}
+              {!filtered.length && <tr><td colSpan={5}>No hours in this range for this placement and supervisor.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </Card>
   </section>
@@ -1081,7 +1098,7 @@ function ActivityDialog({ activity, data, close, save, remove, openPlacements }:
                   <Label htmlFor="activity-placement">Placement</Label>
                   <NativeSelect id="activity-placement" aria-label="Placement" value={selected.activity.placementId} onChange={e => patch({ placementId: e.target.value, supervisorId: placementOf(data.placements, e.target.value)?.supervisorId ?? '' })}>
                     <option value="">{placements.length ? 'Choose a placement' : 'Add a placement first'}</option>
-                    {placements.map(item => <option key={item.id} value={item.id}>{item.name}{item.site ? ` · ${item.site}` : ''}</option>)}
+                    {placements.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </NativeSelect>
                   {selectedPlacement?.supervisorId && <small className="text-[11px] font-medium text-muted-foreground">Supervisor: {itemName(data.dictionaries.supervisors, selectedPlacement.supervisorId)}</small>}
                 </div>

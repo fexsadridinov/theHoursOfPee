@@ -9,6 +9,7 @@ import {
   dictionaryUsage,
   ensureRequiredTypes,
   findOrCreateNamed,
+  foldPlacementName,
   kindsFor,
   migrateToCurrent,
   removeItem,
@@ -27,6 +28,11 @@ describe('dictionary helpers', () => {
     const created = findOrCreateNamed(items, 'dr. maya chen')
     expect(created.id).toBe('sup-maya')
     expect(created.items).toHaveLength(items.length)
+  })
+
+  it('stores the site as the placement name', () => {
+    expect(foldPlacementName('Community placement', 'Riverside Clinic')).toEqual({ name: 'Riverside Clinic', site: '' })
+    expect(foldPlacementName('Lincoln High School', '')).toEqual({ name: 'Lincoln High School', site: '' })
   })
 
   it('adds a new dictionary value', () => {
@@ -108,7 +114,7 @@ describe('schema migration', () => {
   it('turns experiences into placements and remaps the old activity types', () => {
     const next = migrateToCurrent(legacy)
     expect(next.placements).toEqual([
-      { id: 'exp-clinic', name: 'Community placement', site: 'Riverside', supervisorId: '', startDate: '2026-06-01', endDate: '', active: true },
+      { id: 'exp-clinic', name: 'Riverside', site: '', supervisorId: '', startDate: '2026-06-01', endDate: '', active: true },
     ])
     expect(next.activities[0]).toEqual({
       id: 'a1', date: '2026-09-14', durationMinutes: 90, activityTypeId: 'direct-individual',
