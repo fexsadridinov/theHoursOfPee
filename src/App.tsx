@@ -381,7 +381,7 @@ function CategoryDonut({ byCategory, total }: { byCategory: Record<string, numbe
 
   return (
     <div className="flex w-full min-w-0 flex-col items-center gap-3">
-      <div className="relative size-24 shrink-0" onMouseLeave={() => setHovered(null)}>
+      <div className="relative size-36 shrink-0" onMouseLeave={() => setHovered(null)}>
         <svg viewBox="0 0 100 100" className="size-full" role="img" aria-label={
           total
             ? `Hours by category. ${slices.map(slice => `${categoryLabel(slice.category)} ${slice.share}`).join(', ')}.`
@@ -404,7 +404,7 @@ function CategoryDonut({ byCategory, total }: { byCategory: Record<string, numbe
             />
           ))}
         </svg>
-        <div className="pointer-events-none absolute inset-4 flex flex-col items-center justify-center text-center">
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
           {active
             ? <strong className="font-serif text-lg font-semibold leading-none tabular-nums">{active.share}</strong>
             : <>
