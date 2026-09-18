@@ -74,6 +74,31 @@ const emptyActivity = (data: AppData, date = today()): Activity => {
   }
 }
 
+const formatShare = (minutes: number, total: number) => {
+  if (!total || minutes <= 0) return '0%'
+  const rounded = Math.round((minutes / total) * 1000) / 10
+  return `${Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)}%`
+}
+
+const polar = (cx: number, cy: number, r: number, angle: number) => {
+  const rad = (angle - 90) * Math.PI / 180
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
+}
+
+const donutSlicePath = (start: number, sweep: number, rOuter = 48, rInner = 31, cx = 50, cy = 50) => {
+  if (sweep <= 0) return ''
+  if (sweep >= 359.999) {
+    return `M ${cx} ${cy - rOuter} A ${rOuter} ${rOuter} 0 1 1 ${cx} ${cy + rOuter} A ${rOuter} ${rOuter} 0 1 1 ${cx} ${cy - rOuter} M ${cx} ${cy - rInner} A ${rInner} ${rInner} 0 1 0 ${cx} ${cy + rInner} A ${rInner} ${rInner} 0 1 0 ${cx} ${cy - rInner}`
+  }
+  const end = start + sweep
+  const large = sweep > 180 ? 1 : 0
+  const a = polar(cx, cy, rOuter, start)
+  const b = polar(cx, cy, rOuter, end)
+  const c = polar(cx, cy, rInner, end)
+  const d = polar(cx, cy, rInner, start)
+  return `M ${a.x} ${a.y} A ${rOuter} ${rOuter} 0 ${large} 1 ${b.x} ${b.y} L ${c.x} ${c.y} A ${rInner} ${rInner} 0 ${large} 0 ${d.x} ${d.y} Z`
+}
+
 const kickerClass = 'text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground'
 const navBtn = (active: boolean) => cn(
   'flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold text-sidebar-foreground transition-colors hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground',
@@ -286,8 +311,6 @@ function Dashboard({ data, traineeName, openNew, edit, go }: { data: AppData, tr
     return { label: dateLabel(iso(start), { month: 'short', day: 'numeric' }), minutes: sumMinutes(activities, a => inDateRange(a.date, iso(start), iso(end))) }
   })
   const maxWeek = Math.max(...weekBars.map(bar => bar.minutes), 1)
-  const directPct = total ? (byCategory.direct ?? 0) / total * 100 : 0
-  const indirectPct = total ? (byCategory.indirect ?? 0) / total * 100 : 0
 
   return <section className="mx-auto max-w-[1420px] px-4 py-6 sm:px-6 sm:py-10 lg:px-[4.2vw] lg:pb-[70px]">
     <div className="page-heading mb-6 md:mb-8">
@@ -323,21 +346,7 @@ function Dashboard({ data, traineeName, openNew, edit, go }: { data: AppData, tr
       <Card>
         <CardHeader><span className={kickerClass}>BREAKDOWN</span><CardTitle className="mt-1">By category</CardTitle></CardHeader>
         <CardContent>
-          <div className="flex flex-col items-center gap-5">
-            <div className="relative grid size-[145px] shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(${categoryMeta.direct.color} 0 ${directPct}%, ${categoryMeta.indirect.color} 0 ${directPct + indirectPct}%, ${categoryMeta.supervision.color} 0)` }}>
-              <div className="absolute inset-5 rounded-full bg-card"/>
-              <div className="z-10 text-center"><strong className="block font-serif text-xl">{formatHours(total)}</strong><span className="text-[9px] uppercase tracking-widest text-muted-foreground">total</span></div>
-            </div>
-            <div className="w-full min-w-0">
-              {CATEGORY_ORDER.map(category => (
-                <div key={category} className="grid grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-2 border-b border-border py-2 text-[11px] last:border-0">
-                  <i className="size-1.5 rounded-full" style={{ background: categoryMeta[category].color }}/>
-                  <span className="truncate">{categoryLabel(category)}</span>
-                  <strong className="whitespace-nowrap tabular-nums">{formatHours(byCategory[category] ?? 0)}</strong>
-                </div>
-              ))}
-            </div>
-          </div>
+          <CategoryDonut byCategory={byCategory} total={total}/>
         </CardContent>
       </Card>
       <Card className="col-span-full">
@@ -353,6 +362,84 @@ function Dashboard({ data, traineeName, openNew, edit, go }: { data: AppData, tr
       </Card>
     </div>
   </section>
+}
+
+function CategoryDonut({ byCategory, total }: { byCategory: Record<string, number>, total: number }) {
+  const [hovered, setHovered] = useState<ActivityCategory | null>(null)
+  const slices = useMemo(() => {
+    let angle = 0
+    return CATEGORY_ORDER.map(category => {
+      const minutes = byCategory[category] ?? 0
+      const sweep = total ? (minutes / total) * 360 : 0
+      const start = angle
+      angle += sweep
+      return { category, minutes, sweep, start, share: formatShare(minutes, total) }
+    })
+  }, [byCategory, total])
+  const active = slices.find(slice => slice.category === hovered)
+
+  return (
+    <div className="flex flex-col items-center gap-5">
+      <div
+        className="relative size-[145px] shrink-0"
+        onMouseLeave={() => setHovered(null)}
+      >
+        <svg viewBox="0 0 100 100" className="size-full overflow-visible" role="img" aria-label={
+          total
+            ? `Hours by category. ${slices.map(slice => `${categoryLabel(slice.category)} ${slice.share}`).join(', ')}.`
+            : 'No hours logged yet'
+        }>
+          {!total && <path d={donutSlicePath(0, 360)} fill="#CEE5D0" fillRule="evenodd"/>}
+          {slices.map(slice => slice.sweep > 0 && (
+            <path
+              key={slice.category}
+              d={donutSlicePath(slice.start, slice.sweep)}
+              fill={categoryMeta[slice.category].color}
+              fillRule="evenodd"
+              tabIndex={0}
+              className="cursor-pointer outline-none transition-opacity duration-150"
+              style={{ opacity: hovered && hovered !== slice.category ? 0.38 : 1 }}
+              aria-label={`${categoryLabel(slice.category)}, ${slice.share} of hours`}
+              onMouseEnter={() => setHovered(slice.category)}
+              onFocus={() => setHovered(slice.category)}
+              onBlur={() => setHovered(current => current === slice.category ? null : current)}
+            />
+          ))}
+        </svg>
+        <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+          {active
+            ? <>
+              <strong className="block font-serif text-xl tabular-nums">{active.share}</strong>
+              <span className="text-[9px] uppercase tracking-widest text-muted-foreground">{categoryLabel(active.category)}</span>
+            </>
+            : <>
+              <strong className="block font-serif text-xl">{formatHours(total)}</strong>
+              <span className="text-[9px] uppercase tracking-widest text-muted-foreground">total</span>
+            </>}
+        </div>
+      </div>
+      <div className="w-full min-w-0" onMouseLeave={() => setHovered(null)}>
+        {slices.map(slice => (
+          <button
+            type="button"
+            key={slice.category}
+            className={cn(
+              'grid w-full grid-cols-[10px_minmax(0,1fr)_auto_3.25rem] items-center gap-2 border-b border-border py-2 text-left text-[11px] last:border-0',
+              hovered && hovered !== slice.category && 'opacity-40',
+            )}
+            onMouseEnter={() => setHovered(slice.category)}
+            onFocus={() => setHovered(slice.category)}
+            onBlur={() => setHovered(current => current === slice.category ? null : current)}
+          >
+            <i className="size-1.5 rounded-full" style={{ background: categoryMeta[slice.category].color }}/>
+            <span className="truncate">{categoryLabel(slice.category)}</span>
+            <strong className="whitespace-nowrap tabular-nums">{formatHours(slice.minutes)}</strong>
+            <span className={cn('text-right tabular-nums text-muted-foreground transition-opacity', hovered ? 'opacity-100' : 'opacity-0')}>{slice.share}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function Metric({ label, value, hint, tone }: { label: string, value: string, hint: string, tone: 'sage' | 'clay' | 'mint' | 'cream' }) {
