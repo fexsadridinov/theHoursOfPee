@@ -85,7 +85,7 @@ const polar = (cx: number, cy: number, r: number, angle: number) => {
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
 }
 
-const donutSlicePath = (start: number, sweep: number, rOuter = 48, rInner = 31, cx = 50, cy = 50) => {
+const donutSlicePath = (start: number, sweep: number, rOuter = 46, rInner = 34, cx = 50, cy = 50) => {
   if (sweep <= 0) return ''
   if (sweep >= 359.999) {
     return `M ${cx} ${cy - rOuter} A ${rOuter} ${rOuter} 0 1 1 ${cx} ${cy + rOuter} A ${rOuter} ${rOuter} 0 1 1 ${cx} ${cy - rOuter} M ${cx} ${cy - rInner} A ${rInner} ${rInner} 0 1 0 ${cx} ${cy + rInner} A ${rInner} ${rInner} 0 1 0 ${cx} ${cy - rInner}`
@@ -326,7 +326,7 @@ function Dashboard({ data, traineeName, openNew, edit, go }: { data: AppData, tr
       <Metric label="All-time total" value={formatHours(total)} hint={`${activities.length} ${activities.length === 1 ? 'entry' : 'entries'}`} tone="cream"/>
     </div>
     <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-3">
-      <Card className="lg:col-span-2">
+      <Card className="flex h-full flex-col lg:col-span-2">
         <CardHeader className="flex-row items-start justify-between space-y-0">
           <div><span className={kickerClass}>8 WEEK VIEW</span><CardTitle className="mt-1">Hours over time</CardTitle></div>
           <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><i className="size-2 rounded-full bg-primary"/> Hours logged</span>
@@ -343,9 +343,9 @@ function Dashboard({ data, traineeName, openNew, edit, go }: { data: AppData, tr
           </div>
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader><span className={kickerClass}>BREAKDOWN</span><CardTitle className="mt-1">By category</CardTitle></CardHeader>
-        <CardContent>
+      <Card className="flex h-full flex-col">
+        <CardHeader className="pb-3"><span className={kickerClass}>BREAKDOWN</span><CardTitle className="mt-1">By category</CardTitle></CardHeader>
+        <CardContent className="flex flex-1 items-center">
           <CategoryDonut byCategory={byCategory} total={total}/>
         </CardContent>
       </Card>
@@ -371,20 +371,18 @@ function CategoryDonut({ byCategory, total }: { byCategory: Record<string, numbe
     return CATEGORY_ORDER.map(category => {
       const minutes = byCategory[category] ?? 0
       const sweep = total ? (minutes / total) * 360 : 0
-      const start = angle
+      const gap = sweep > 8 ? 2.2 : 0
+      const start = angle + gap / 2
       angle += sweep
-      return { category, minutes, sweep, start, share: formatShare(minutes, total) }
+      return { category, minutes, sweep: Math.max(0, sweep - gap), start, share: formatShare(minutes, total) }
     })
   }, [byCategory, total])
   const active = slices.find(slice => slice.category === hovered)
 
   return (
-    <div className="flex flex-col items-center gap-5">
-      <div
-        className="relative size-[145px] shrink-0"
-        onMouseLeave={() => setHovered(null)}
-      >
-        <svg viewBox="0 0 100 100" className="size-full overflow-visible" role="img" aria-label={
+    <div className="flex w-full min-w-0 flex-col items-center gap-3">
+      <div className="relative size-24 shrink-0" onMouseLeave={() => setHovered(null)}>
+        <svg viewBox="0 0 100 100" className="size-full" role="img" aria-label={
           total
             ? `Hours by category. ${slices.map(slice => `${categoryLabel(slice.category)} ${slice.share}`).join(', ')}.`
             : 'No hours logged yet'
@@ -398,7 +396,7 @@ function CategoryDonut({ byCategory, total }: { byCategory: Record<string, numbe
               fillRule="evenodd"
               tabIndex={0}
               className="cursor-pointer outline-none transition-opacity duration-150"
-              style={{ opacity: hovered && hovered !== slice.category ? 0.38 : 1 }}
+              style={{ opacity: hovered && hovered !== slice.category ? 0.35 : 1 }}
               aria-label={`${categoryLabel(slice.category)}, ${slice.share} of hours`}
               onMouseEnter={() => setHovered(slice.category)}
               onFocus={() => setHovered(slice.category)}
@@ -406,15 +404,12 @@ function CategoryDonut({ byCategory, total }: { byCategory: Record<string, numbe
             />
           ))}
         </svg>
-        <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+        <div className="pointer-events-none absolute inset-4 flex flex-col items-center justify-center text-center">
           {active
-            ? <>
-              <strong className="block font-serif text-xl tabular-nums">{active.share}</strong>
-              <span className="text-[9px] uppercase tracking-widest text-muted-foreground">{categoryLabel(active.category)}</span>
-            </>
+            ? <strong className="font-serif text-lg font-semibold leading-none tabular-nums">{active.share}</strong>
             : <>
-              <strong className="block font-serif text-xl">{formatHours(total)}</strong>
-              <span className="text-[9px] uppercase tracking-widest text-muted-foreground">total</span>
+              <strong className="font-serif text-base font-semibold leading-none">{hoursFromMinutes(total)}</strong>
+              <span className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.14em] text-muted-foreground">hours</span>
             </>}
         </div>
       </div>
@@ -424,17 +419,17 @@ function CategoryDonut({ byCategory, total }: { byCategory: Record<string, numbe
             type="button"
             key={slice.category}
             className={cn(
-              'grid w-full grid-cols-[10px_minmax(0,1fr)_auto_3.25rem] items-center gap-2 border-b border-border py-2 text-left text-[11px] last:border-0',
+              'flex w-full items-center gap-2 border-b border-border py-1.5 text-left text-[11px] leading-none last:border-0',
               hovered && hovered !== slice.category && 'opacity-40',
             )}
             onMouseEnter={() => setHovered(slice.category)}
             onFocus={() => setHovered(slice.category)}
             onBlur={() => setHovered(current => current === slice.category ? null : current)}
           >
-            <i className="size-1.5 rounded-full" style={{ background: categoryMeta[slice.category].color }}/>
-            <span className="truncate">{categoryLabel(slice.category)}</span>
-            <strong className="whitespace-nowrap tabular-nums">{formatHours(slice.minutes)}</strong>
-            <span className={cn('text-right tabular-nums text-muted-foreground transition-opacity', hovered ? 'opacity-100' : 'opacity-0')}>{slice.share}</span>
+            <i className="size-1.5 shrink-0 rounded-full" style={{ background: categoryMeta[slice.category].color }}/>
+            <span className="min-w-0 flex-1 truncate">{categoryLabel(slice.category)}</span>
+            <strong className="shrink-0 whitespace-nowrap tabular-nums">{formatHours(slice.minutes)}</strong>
+            <span className={cn('w-9 shrink-0 text-right text-[10px] tabular-nums', hovered === slice.category ? 'font-semibold text-foreground' : 'text-muted-foreground')}>{slice.share}</span>
           </button>
         ))}
       </div>
